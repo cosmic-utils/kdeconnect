@@ -2841,6 +2841,8 @@ name = "kdeconnect-service"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "calloop",
+ "calloop-wayland-source",
  "dirs",
  "futures",
  "futures-util",
@@ -2852,6 +2854,8 @@ dependencies = [
  "tracing",
  "tracing-appender",
  "tracing-subscriber",
+ "wayland-client",
+ "wayland-protocols",
  "zbus",
 ]
 

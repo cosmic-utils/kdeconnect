@@ -44,6 +44,10 @@ uuid = { version = "1.23.1", features = ["v4"] }
 zbus = "5.15"
 libpulse-binding = { version = "2.30" }
 tracing-appender = "0.2"
+calloop = "0.14.4"
+calloop-wayland-source = "0.4.1"
+wayland-client = "0.31.14"
+wayland-protocols = { version = "0.32.12", features = ["client", "staging"] }
 
 kdeconnect-core = { path = "kdeconnect-core" }
 kdeconnect-dbus-client = { path = "kdeconnect-dbus-client" }
@@ -53,8 +57,8 @@ libcosmic = { git = "https://github.com/pop-os/libcosmic", default-features = fa
     "wgpu",
 ] }
 
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = true
+# [profile.release]
+# opt-level = 3
+# lto = true
+# codegen-units = 1
+# strip = true

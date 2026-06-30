@@ -6,6 +6,9 @@ use crate::models::Device;
 pub enum Message {
     TogglePopup,
     PopupClosed(cosmic::iced::window::Id),
+    Surface(cosmic::surface::Action),
+    Quit,
+    QuitFinished(Result<(), String>),
     RefreshDevices,
     DevicesUpdated(Vec<Device>),
     ToggleDeviceMenu(String),
@@ -23,14 +26,14 @@ pub enum Message {
     ShareUrl(String),
     UpdateTransferProgress(u8),
 
-    // Clipboard received from phone — written to the desktop clipboard
-    ClipboardReceived(String),
-    // Desktop clipboard read result — content forwarded to device
-    ClipboardReadForDevice(String, String), // device_id, content
+    ClipboardSendFinished {
+        device_id: String,
+        result: Result<(), String>,
+    },
 
     // Battery and connectivity updates — patch device in place without full refresh
-    BatteryUpdated(String, i32, bool),  // device_id, level, is_charging
-    ConnectivityUpdated(String, i32),   // device_id, signal_strength
+    BatteryUpdated(String, i32, bool), // device_id, level, is_charging
+    ConnectivityUpdated(String, i32),  // device_id, signal_strength
 
     // Advanced features
     RemoteInput(String),
@@ -51,7 +54,7 @@ pub enum Message {
     MprisReceived(String, serde_json::Value), // device_id, mpris_data
 
     // Run Command
-    RequestRunCommands(String),              // device_id
-    RunCommandsReceived(String, String),     // device_id, commands_json
-    ExecuteRunCommand(String, String),       // device_id, key
+    RequestRunCommands(String),          // device_id
+    RunCommandsReceived(String, String), // device_id, commands_json
+    ExecuteRunCommand(String, String),   // device_id, key
 }

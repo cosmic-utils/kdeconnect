@@ -1,10 +1,10 @@
 use crate::messages::Message;
 use crate::models::Device;
+use crate::theme;
 use cosmic::app::Core;
 use cosmic::iced::{Alignment, Length};
 use cosmic::{Element, widget};
 use std::collections::HashMap;
-use crate::theme;
 
 /// Build the popup view using the real application Core so popup_container
 /// has proper applet context, theme, and sizing.
@@ -124,7 +124,12 @@ pub fn create_popup_view<'a>(
         );
 
         for device in paired_devices {
-            content = content.push(create_device_card(device, &spacing, expanded_device, accent_color));
+            content = content.push(create_device_card(
+                device,
+                &spacing,
+                expanded_device,
+                accent_color,
+            ));
         }
     }
 
@@ -141,7 +146,7 @@ pub fn create_popup_view<'a>(
 fn create_device_card<'a>(
     device: &'a Device,
     spacing: &cosmic::cosmic_theme::Spacing,
-    expanded_device: Option<&'a String>,
+    expanded_device: Option<&String>,
     accent_color: cosmic::iced::Color,
 ) -> Element<'a, Message> {
     let is_expanded = expanded_device == Some(&device.id);
@@ -157,26 +162,33 @@ fn create_device_card<'a>(
         name_row = name_row.push(widget::text(fl!("devices-offline")).size(11));
     } else {
         if let Some(signal_icon) = device.signal_icon() {
-            name_row = name_row.push(widget::icon(theme::accent_icon(signal_icon, accent_color)).size(16));
+            name_row =
+                name_row.push(widget::icon(theme::accent_icon(signal_icon, accent_color)).size(16));
         }
         if let Some(level) = device.battery_level {
             name_row = name_row.push(
                 widget::Row::new()
                     .spacing(2)
                     .align_y(Alignment::Center)
-                    .push(widget::icon(theme::accent_icon(device.battery_icon(), accent_color)).size(16))
+                    .push(
+                        widget::icon(theme::accent_icon(device.battery_icon(), accent_color))
+                            .size(16),
+                    )
                     .push(widget::text(format!("{}%", level)).size(11)),
             );
         }
     }
 
     name_row = name_row.push(
-        widget::button::icon(theme::accent_icon(
-            if is_expanded { "go-up-symbolic" } else { "go-down-symbolic" },
+        widget::icon(theme::accent_icon(
+            if is_expanded {
+                "go-up-symbolic"
+            } else {
+                "go-down-symbolic"
+            },
             accent_color,
         ))
-        .on_press(Message::ToggleDeviceMenu(device.id.clone()))
-        .class(cosmic::theme::Button::Icon),
+        .size(16),
     );
 
     let device_button = widget::button::custom(name_row)
@@ -243,7 +255,9 @@ fn create_device_card<'a>(
                         .class(theme::accent_link_button(accent_color)),
                 );
                 menu_items = menu_items.push_maybe(if let Some(progress) = device.share_progress {
-                    Some(widget::progress_bar::determinate_linear(progress as f32 / 100.0))
+                    Some(widget::progress_bar::determinate_linear(
+                        progress as f32 / 100.0,
+                    ))
                 } else {
                     None
                 });

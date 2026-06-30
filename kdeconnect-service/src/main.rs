@@ -3,6 +3,7 @@
 use anyhow::Result;
 use tracing::info;
 
+mod clipboard;
 mod dbus_interface;
 
 #[tokio::main]
@@ -17,8 +18,7 @@ async fn main() -> Result<()> {
     if std::env::var("KDECONNECT_LOG_FILE").is_ok()
         && std::path::Path::new("/.flatpak-info").exists()
     {
-        let log_dir = dirs::data_dir()
-            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+        let log_dir = dirs::data_dir().unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
         let _ = std::fs::create_dir_all(&log_dir);
         let file = std::fs::OpenOptions::new()
             .create(true)

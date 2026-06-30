@@ -1,6 +1,7 @@
 # Applet header
 applet-title = Cosmic Ext Connect
 applet-settings = Settings
+applet-quit = Quit
 
 # Pairing
 pairing-requests = Pairing Requests

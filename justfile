@@ -134,7 +134,8 @@ uninstall:
     rm -vf {{PREFIX}}/bin/cosmic-ext-connect-applet
     rm -vf {{PREFIX}}/bin/cosmic-ext-connect-settings
     rm -vf {{PREFIX}}/bin/cosmic-ext-connect-sms
-    rm -vf {{XDG_CONFIG}}/kdeconnect/*
+    rm -vf {{PREFIX}}/bin/kdeconnect-applet-debug
+    rm -rvf {{XDG_CONFIG}}/kdeconnect/*
     rm -vf {{XDG_CONFIG}}/systemd/user/kdeconnect.service
     rm -vf {{XDG_CONFIG}}/autostart/{{APPID}}.daemon.desktop
     rm -rvf {{PREFIX}}/share/kdeconnect/*

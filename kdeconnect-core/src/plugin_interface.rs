@@ -32,7 +32,7 @@ pub trait Plugin: Sync + Send {
 
 /// Maps a PacketType to the logical plugin ID used in settings.
 /// Returns None for core packets (Identity, Pair) that are never gated.
-fn packet_plugin_id(pt: &PacketType) -> Option<&'static str> {
+pub(crate) fn packet_plugin_id(pt: &PacketType) -> Option<&'static str> {
     match pt {
         PacketType::Battery | PacketType::BatteryRequest => Some("battery"),
         PacketType::Clipboard | PacketType::ClipboardConnect => Some("clipboard"),
@@ -229,19 +229,16 @@ impl PluginRegistry {
                 }
             }
             PacketType::ClipboardConnect => {
-                if let Ok(clipboard) = serde_json::from_value::<Clipboard>(body)
-                    && let Some(timestamp) = clipboard.timestamp
-                {
-                    let local_ts = std::time::SystemTime::now()
-                        .duration_since(std::time::UNIX_EPOCH)
-                        .map(|d| d.as_millis() as u64)
-                        .unwrap_or(0);
-                    if timestamp > 0 && timestamp >= local_ts {
-                        info!("Clipboard sync on connect accepted (ts={} local={})", timestamp, local_ts);
-                        clipboard.received_packet(connection_tx).await;
-                    } else {
-                        info!("Clipboard sync on connect ignored — stale timestamp (ts={} local={})", timestamp, local_ts);
-                    }
+                if let Ok(clipboard) = serde_json::from_value::<Clipboard>(body) {
+                    // The remote timestamp cannot be compared with `now`: network
+                    // latency makes it older by definition and clock skew makes the
+                    // comparison meaningless. The applet tracks the actual local
+                    // clipboard value and suppresses echo loops.
+                    info!(
+                        "Clipboard sync on connect accepted (remote_ts={:?})",
+                        clipboard.timestamp
+                    );
+                    clipboard.received_packet(connection_tx).await;
                 }
             }
             PacketType::MousePadKeyboardState => {

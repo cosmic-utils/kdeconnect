@@ -15,6 +15,8 @@ use tracing::{debug, error, info};
 use zbus::object_server::SignalEmitter;
 use zbus::{Connection, interface};
 
+use crate::clipboard::{self, ClipboardEvent, ClipboardHandle};
+
 const SERVICE_NAME: &str = "io.github.hepp3n.kdeconnect";
 const DAEMON_PATH: &str = "/io/github/hepp3n/kdeconnect/Daemon";
 const SMS_PATH: &str = "/io/github/hepp3n/kdeconnect/Sms";
@@ -121,6 +123,8 @@ async fn load_sms_cache(device_id: &str) -> Option<String> {
 pub struct DaemonInterface {
     event_sender: Arc<mpsc::UnboundedSender<AppEvent>>,
     devices: Arc<Mutex<HashMap<String, DbusDevice>>>,
+    shutdown_sender: tokio::sync::watch::Sender<bool>,
+    clipboard: Option<ClipboardHandle>,
 }
 
 #[interface(name = "io.github.hepp3n.kdeconnect.Daemon")]
@@ -181,11 +185,67 @@ impl DaemonInterface {
     /// Send clipboard content
     async fn send_clipboard(&self, device_id: String, content: String) -> zbus::fdo::Result<()> {
         info!("D-Bus: SendClipboard called for {}", device_id);
+
+        let device = self.devices.lock().await.get(&device_id).cloned();
+        let Some(device) = device else {
+            return Err(zbus::fdo::Error::Failed(format!(
+                "Unknown device: {device_id}"
+            )));
+        };
+        if !device.is_paired {
+            return Err(zbus::fdo::Error::Failed(format!(
+                "Device is not paired: {device_id}"
+            )));
+        }
+        if !device.is_reachable {
+            return Err(zbus::fdo::Error::Failed(format!(
+                "Device is not reachable: {device_id}"
+            )));
+        }
+        if kdeconnect_core::plugin_config::load_disabled_plugins(&device_id)
+            .await
+            .contains("clipboard")
+        {
+            return Err(zbus::fdo::Error::Failed(format!(
+                "Clipboard plugin is disabled for device: {device_id}"
+            )));
+        }
+
         let packet = ProtocolPacket::new(PacketType::Clipboard, json!({ "content": content }));
+        let (reply_tx, reply_rx) = tokio::sync::oneshot::channel();
         self.event_sender
-            .send(AppEvent::SendPacket(DeviceId(device_id), packet))
+            .send(AppEvent::SendPacketWithReply(
+                DeviceId(device_id),
+                packet,
+                reply_tx,
+            ))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
-        Ok(())
+
+        match tokio::time::timeout(std::time::Duration::from_secs(2), reply_rx).await {
+            Ok(Ok(Ok(()))) => Ok(()),
+            Ok(Ok(Err(message))) => Err(zbus::fdo::Error::Failed(message)),
+            Ok(Err(_)) => Err(zbus::fdo::Error::Failed(
+                "Clipboard send acknowledgement was dropped".to_string(),
+            )),
+            Err(_) => Err(zbus::fdo::Error::Failed(
+                "Clipboard send acknowledgement timed out".to_string(),
+            )),
+        }
+    }
+
+    /// Send the current desktop clipboard. Reading is performed by the
+    /// service's background data-control worker, not by the focused applet.
+    async fn share_clipboard(&self, device_id: String) -> zbus::fdo::Result<()> {
+        let clipboard = self.clipboard.as_ref().ok_or_else(|| {
+            zbus::fdo::Error::Failed(
+                "Background clipboard access is unavailable; ext-data-control-v1 is required"
+                    .to_string(),
+            )
+        })?;
+        let content = clipboard.current().ok_or_else(|| {
+            zbus::fdo::Error::Failed("The current clipboard does not contain text".to_string())
+        })?;
+        self.send_clipboard(device_id, content.text).await
     }
 
     /// Ring a device (findmyphone)
@@ -232,6 +292,17 @@ impl DaemonInterface {
         }
     }
 
+    /// Stop the daemon. The short delay lets zbus flush the method reply before
+    /// the process releases its session-bus connection.
+    async fn quit(&self) {
+        info!("D-Bus: Quit called");
+        let shutdown_sender = self.shutdown_sender.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+            let _ = shutdown_sender.send(true);
+        });
+    }
+
     /// Trigger a UDP identity broadcast to discover nearby devices.
     async fn broadcast_identity(&self) -> zbus::fdo::Result<()> {
         info!("D-Bus: BroadcastIdentity called");
@@ -245,7 +316,9 @@ impl DaemonInterface {
     async fn accept_pairing(&self, device_id: String) -> zbus::fdo::Result<()> {
         info!("D-Bus: AcceptPairing called for {}", device_id);
         self.event_sender
-            .send(AppEvent::AcceptPairing(kdeconnect_core::device::DeviceId(device_id)))
+            .send(AppEvent::AcceptPairing(kdeconnect_core::device::DeviceId(
+                device_id,
+            )))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         Ok(())
     }
@@ -254,7 +327,9 @@ impl DaemonInterface {
     async fn reject_pairing(&self, device_id: String) -> zbus::fdo::Result<()> {
         info!("D-Bus: RejectPairing called for {}", device_id);
         self.event_sender
-            .send(AppEvent::RejectPairing(kdeconnect_core::device::DeviceId(device_id)))
+            .send(AppEvent::RejectPairing(kdeconnect_core::device::DeviceId(
+                device_id,
+            )))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         Ok(())
     }
@@ -323,10 +398,7 @@ impl DaemonInterface {
     /// Execute a remote command on a device by key
     async fn run_command(&self, device_id: String, key: String) -> zbus::fdo::Result<()> {
         info!("D-Bus: RunCommand called for {} key={}", device_id, key);
-        let packet = ProtocolPacket::new(
-            PacketType::RunCommandRequest,
-            json!({ "key": key }),
-        );
+        let packet = ProtocolPacket::new(PacketType::RunCommandRequest, json!({ "key": key }));
         self.event_sender
             .send(AppEvent::SendPacket(DeviceId(device_id), packet))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
@@ -351,7 +423,9 @@ impl DaemonInterface {
     async fn push_local_commands(&self, device_id: String) -> zbus::fdo::Result<()> {
         info!("D-Bus: PushLocalCommands called for {}", device_id);
         self.event_sender
-            .send(AppEvent::PushLocalCommands(kdeconnect_core::device::DeviceId(device_id)))
+            .send(AppEvent::PushLocalCommands(
+                kdeconnect_core::device::DeviceId(device_id),
+            ))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         Ok(())
     }
@@ -505,6 +579,7 @@ pub struct KdeConnectService {
     event_sender: Arc<mpsc::UnboundedSender<AppEvent>>,
     #[allow(dead_code)]
     devices: Arc<Mutex<HashMap<String, DbusDevice>>>,
+    shutdown_receiver: tokio::sync::watch::Receiver<bool>,
 }
 
 impl KdeConnectService {
@@ -522,6 +597,18 @@ impl KdeConnectService {
         use tokio::signal::unix::{SignalKind, signal};
 
         let mut sigterm = signal(SignalKind::terminate())?;
+        let mut shutdown_receiver = self.shutdown_receiver.clone();
+
+        let shutdown_requested = async move {
+            loop {
+                if *shutdown_receiver.borrow() {
+                    break;
+                }
+                if shutdown_receiver.changed().await.is_err() {
+                    std::future::pending::<()>().await;
+                }
+            }
+        };
 
         // Dedicated watch connection — no messages are expected on it.
         // When the session bus closes (cosmic-session logout or systemd user
@@ -539,6 +626,7 @@ impl KdeConnectService {
             _ = tokio::signal::ctrl_c() => { info!("SIGINT received, shutting down"); }
             _ = sigterm.recv() => { info!("SIGTERM received, shutting down"); }
             _ = session_ended => { info!("Session D-Bus closed, shutting down"); }
+            _ = shutdown_requested => { info!("Quit requested over D-Bus, shutting down"); }
         }
         Ok(())
     }
@@ -562,6 +650,15 @@ impl KdeConnectService {
         info!("kdeconnect-core initialized");
 
         let devices = Arc::new(Mutex::new(HashMap::new()));
+        let (shutdown_sender, shutdown_receiver) = tokio::sync::watch::channel(false);
+
+        let (clipboard, clipboard_events) = match clipboard::start() {
+            Ok((handle, events)) => (Some(handle), Some(events)),
+            Err(error) => {
+                error!("Background clipboard synchronization unavailable: {error:#}");
+                (None, None)
+            }
+        };
 
         // Pre-populate known paired devices as offline so list_devices() returns
         // them immediately after reboot, before the phone actively reconnects.
@@ -600,6 +697,8 @@ impl KdeConnectService {
         let daemon_interface = DaemonInterface {
             event_sender: event_sender.clone(),
             devices: devices.clone(),
+            shutdown_sender,
+            clipboard: clipboard.clone(),
         };
         connection
             .object_server()
@@ -654,6 +753,51 @@ impl KdeConnectService {
             }
         });
 
+        if let Some(mut clipboard_events) = clipboard_events {
+            let devices = devices.clone();
+            let event_sender = event_sender.clone();
+            tokio::spawn(async move {
+                while let Some(event) = clipboard_events.recv().await {
+                    let ClipboardEvent::Changed(content) = event;
+                    let candidates: Vec<DbusDevice> = devices
+                        .lock()
+                        .await
+                        .values()
+                        .filter(|device| device.is_paired && device.is_reachable)
+                        .cloned()
+                        .collect();
+
+                    for device in candidates {
+                        if kdeconnect_core::plugin_config::load_disabled_plugins(&device.id)
+                            .await
+                            .contains("clipboard")
+                        {
+                            continue;
+                        }
+                        let config = clipboard::load_plugin_config(&device.id).await;
+                        if !config.auto_share || (content.sensitive && !config.send_password) {
+                            continue;
+                        }
+
+                        let packet = ProtocolPacket::new(
+                            PacketType::Clipboard,
+                            json!({ "content": content.text }),
+                        );
+                        if let Err(error) = event_sender
+                            .send(AppEvent::SendPacket(DeviceId(device.id.clone()), packet))
+                        {
+                            error!(
+                                "Failed to queue automatic clipboard for {}: {error}",
+                                device.id
+                            );
+                        } else {
+                            debug!("Automatic clipboard queued for {}", device.id);
+                        }
+                    }
+                }
+            });
+        }
+
         let core_handle = tokio::spawn(async move {
             core.run_event_loop().await;
         });
@@ -661,7 +805,9 @@ impl KdeConnectService {
         tokio::spawn(async move {
             match core_handle.await {
                 Ok(_) => error!("Core event loop exited unexpectedly - connections will fail"),
-                Err(e) if e.is_panic() => error!("Core event loop PANICKED - connections will fail: {:?}", e),
+                Err(e) if e.is_panic() => {
+                    error!("Core event loop PANICKED - connections will fail: {:?}", e)
+                }
                 Err(e) => error!("Core event loop cancelled: {:?}", e),
             }
         });
@@ -670,6 +816,7 @@ impl KdeConnectService {
             connection,
             event_sender,
             devices,
+            shutdown_receiver,
         })
     }
 
@@ -830,7 +977,10 @@ impl KdeConnectService {
                 debug!("Device disconnected signal emitted");
             }
             ConnectionEvent::PairStateChanged((device_id, pair_state)) => {
-                info!("Event: PairStateChanged - {} → {:?}", device_id.0, pair_state);
+                info!(
+                    "Event: PairStateChanged - {} → {:?}",
+                    device_id.0, pair_state
+                );
                 let is_paired = matches!(pair_state, PairState::Paired);
 
                 {
@@ -936,8 +1086,16 @@ impl KdeConnectService {
                     .object_server()
                     .interface::<_, DaemonInterface>(DAEMON_PATH)
                     .await?;
-                DaemonInterface::clipboard_received(iface_ref.signal_emitter(), content)
-                    .await?;
+                let clipboard = { iface_ref.get().await.clipboard.clone() };
+                if let Some(clipboard) = clipboard {
+                    if let Err(error) = clipboard.set_text(content.clone()) {
+                        error!("Failed to write phone clipboard to desktop: {error}");
+                    }
+                } else {
+                    error!("Cannot write phone clipboard: background clipboard access unavailable");
+                }
+
+                DaemonInterface::clipboard_received(iface_ref.signal_emitter(), content).await?;
                 debug!("ClipboardReceived D-Bus signal emitted");
             }
             ConnectionEvent::StateUpdated(state) => {

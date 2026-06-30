@@ -22,3 +22,7 @@ kdeconnect-core = { workspace = true }
 dirs = { workspace = true }
 ron = { workspace = true }
 tracing-appender = { workspace = true }
+calloop = { workspace = true }
+calloop-wayland-source = { workspace = true }
+wayland-client = { workspace = true }
+wayland-protocols = { workspace = true }

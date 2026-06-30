@@ -35,6 +35,7 @@ pub mod backend;
 pub mod messages;
 pub mod models;
 pub mod notifications;
+pub mod plugin_config;
 pub mod plugins;
 pub mod portal;
 pub mod ui;

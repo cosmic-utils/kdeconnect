@@ -1,6 +1,7 @@
 # Applet header
 applet-title = Cosmic Ext Connect
 applet-settings = Nastavení
+applet-quit = Ukončit
 
 # Pairing
 pairing-requests = Žádosti o párování

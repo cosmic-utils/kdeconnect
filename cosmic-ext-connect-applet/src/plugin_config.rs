@@ -120,7 +120,6 @@ impl ClipboardPluginConfig {
         let config_path = Self::get_config_path(device_id);
         
         if !config_path.exists() {
-            eprintln!("Clipboard plugin config not found for device {}, using defaults", device_id);
             return Ok(Self::default());
         }
         
@@ -179,8 +178,12 @@ impl ClipboardPluginConfig {
     
     /// Get the config file path for a device's clipboard plugin
     fn get_config_path(device_id: &str) -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
-        PathBuf::from(format!("{}/.config/kdeconnect/{}/kdeconnect_clipboard/config", home, device_id))
+        dirs::config_dir()
+            .unwrap_or_else(|| PathBuf::from("/tmp"))
+            .join("kdeconnect")
+            .join(device_id)
+            .join("kdeconnect_clipboard")
+            .join("config")
     }
     
     /// Check if a config file exists for the device

@@ -6,7 +6,7 @@ use tokio::{
     select,
     sync::{Mutex, mpsc},
 };
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::{
     device::{Device, DeviceId, DeviceManager},
@@ -462,15 +462,49 @@ impl KdeConnectCore {
             }
             AppEvent::SendPacket(device_id, packet) => {
                 info!("Sending packet to device: {}", device_id);
+                if let Some(plugin_id) =
+                    crate::plugin_interface::packet_plugin_id(&packet.packet_type)
+                    && !self
+                        .plugin_registry
+                        .is_plugin_enabled(&device_id.0, plugin_id)
+                        .await
+                {
+                    warn!(
+                        "Not sending {:?} to {}: plugin '{}' is disabled",
+                        packet.packet_type, device_id, plugin_id
+                    );
+                    return;
+                }
                 if let Some(sender) = guard.get(&device_id) {
-                    let _ = sender.send(packet);
+                    if sender.send(packet).is_err() {
+                        warn!("Failed to queue packet for {}: writer closed", device_id);
+                    }
                 } else {
-                    debug!(
+                    warn!(
                         "No sender for device {} — available: {:?}",
                         device_id,
                         guard.keys().collect::<Vec<_>>()
                     );
                 }
+            }
+            AppEvent::SendPacketWithReply(device_id, packet, reply) => {
+                info!("Sending acknowledged packet to device: {}", device_id);
+                let result = if let Some(plugin_id) =
+                    crate::plugin_interface::packet_plugin_id(&packet.packet_type)
+                    && !self
+                        .plugin_registry
+                        .is_plugin_enabled(&device_id.0, plugin_id)
+                        .await
+                {
+                    Err(format!("Plugin '{plugin_id}' is disabled for {device_id}"))
+                } else if let Some(sender) = guard.get(&device_id) {
+                    sender.send(packet).map_err(|_| {
+                        format!("Connection writer is closed for device {device_id}")
+                    })
+                } else {
+                    Err(format!("No active connection for device {device_id}"))
+                };
+                let _ = reply.send(result);
             }
             AppEvent::PushLocalCommands(device_id) => {
                 plugins::run_command::send_command_list(&device_id, self.event_tx.clone()).await;

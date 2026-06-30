@@ -25,12 +25,29 @@ pub async fn initialize() -> Result<()> {
     Ok(())
 }
 
+/// Return the shared D-Bus client, establishing it lazily when applet startup
+/// raced with the service acquiring its bus name.
+async fn client() -> Result<Arc<KdeConnectClient>> {
+    if let Some(client) = CLIENT.lock().await.clone() {
+        return Ok(client);
+    }
+
+    info!("D-Bus client is not ready; reconnecting");
+    let new_client = Arc::new(KdeConnectClient::new().await?);
+    let mut client_guard = CLIENT.lock().await;
+    Ok(client_guard
+        .get_or_insert_with(|| new_client.clone())
+        .clone())
+}
+
 /// Fetch all devices from the service
 pub async fn fetch_devices() -> Vec<Device> {
-    let client_guard = CLIENT.lock().await;
-    let Some(client) = client_guard.as_ref() else {
-        warn!("D-Bus client not initialized");
-        return vec![];
+    let client = match client().await {
+        Ok(client) => client,
+        Err(e) => {
+            warn!("D-Bus client not initialized: {:?}", e);
+            return vec![];
+        }
     };
 
     match client.list_devices().await {
@@ -65,7 +82,10 @@ pub async fn fetch_devices() -> Vec<Device> {
                         has_presenter: false,
                         has_lockdevice: false,
                         has_virtualmonitor: false,
-                        run_commands: existing.as_ref().map(|e| e.run_commands.clone()).unwrap_or_default(),
+                        run_commands: existing
+                            .as_ref()
+                            .map(|e| e.run_commands.clone())
+                            .unwrap_or_default(),
                     };
                     cache.insert(d.id.clone(), device.clone());
                     device
@@ -127,13 +147,17 @@ pub async fn send_files(device_id: String, files: Vec<String>) -> Result<()> {
     client.send_files(&device_id, files).await
 }
 
-/// Send clipboard content to a device
-pub async fn send_clipboard(device_id: String, content: String) -> Result<()> {
-    let client_guard = CLIENT.lock().await;
-    let Some(client) = client_guard.as_ref() else {
-        return Err(anyhow::anyhow!("D-Bus client not initialized"));
-    };
-    client.send_clipboard(&device_id, &content).await
+/// Ask the service to read its background clipboard cache and send it.
+pub async fn share_clipboard(device_id: String) -> Result<()> {
+    let client = client().await?;
+    client.share_clipboard(&device_id).await
+}
+
+/// Stop the background service. Used by the applet's explicit Quit action so
+/// a subsequent debug run cannot reconnect to a stale daemon binary.
+pub async fn quit_service() -> Result<()> {
+    let client = client().await?;
+    client.quit().await
 }
 
 /// Browse device filesystem (via SFTP)
@@ -176,7 +200,9 @@ pub async fn set_plugin_enabled(device_id: String, plugin_id: String, enabled: b
     let Some(client) = client_guard.as_ref() else {
         return Err(anyhow::anyhow!("D-Bus client not initialized"));
     };
-    client.set_plugin_enabled(&device_id, &plugin_id, enabled).await
+    client
+        .set_plugin_enabled(&device_id, &plugin_id, enabled)
+        .await
 }
 
 /// Return the list of disabled plugin IDs for a device
