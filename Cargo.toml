@@ -57,8 +57,8 @@ libcosmic = { git = "https://github.com/pop-os/libcosmic", default-features = fa
     "wgpu",
 ] }
 
-# [profile.release]
-# opt-level = 3
-# lto = true
-# codegen-units = 1
-# strip = true
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
