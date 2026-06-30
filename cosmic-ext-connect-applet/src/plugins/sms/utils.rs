@@ -95,7 +95,8 @@ fn decode_quoted_printable(input: &str) -> String {
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'=' && i + 2 < bytes.len()
+        if bytes[i] == b'='
+            && i + 2 < bytes.len()
             && bytes[i + 1].is_ascii_hexdigit()
             && bytes[i + 2].is_ascii_hexdigit()
         {

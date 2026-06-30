@@ -137,7 +137,9 @@ impl TcpTransport {
                                 }
                                 Ok(_) => {
                                     raw.push(byte[0]);
-                                    if byte[0] == b'\n' { break; }
+                                    if byte[0] == b'\n' {
+                                        break;
+                                    }
                                     if raw.len() > 65536 {
                                         warn!(peer = ?peer, "[tcp] identity line too long");
                                         break;
@@ -302,11 +304,17 @@ impl UdpTransport {
                             tracing::error!(
                                 "UDP port {} still in use after {} attempts — \
                                  another instance may be running, exiting: {}",
-                                config.listen_addr.port(), attempts, e
+                                config.listen_addr.port(),
+                                attempts,
+                                e
                             );
                             std::process::exit(1);
                         }
-                        tracing::warn!("UDP bind failed (attempt {}), retrying in 1s: {}", attempts, e);
+                        tracing::warn!(
+                            "UDP bind failed (attempt {}), retrying in 1s: {}",
+                            attempts,
+                            e
+                        );
                         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
                     }
                 }
@@ -577,23 +585,72 @@ async fn filtered_identity_for_device(device_id: &str) -> Identity {
     // Map plugin IDs to the capability strings they own.
     // (incoming_caps, outgoing_caps)
     let cap_map: &[(&str, &[&str], &[&str])] = &[
-        ("battery",             &["kdeconnect.battery"],                                                    &["kdeconnect.battery.request"]),
-        ("clipboard",           &["kdeconnect.clipboard", "kdeconnect.clipboard.connect"],                  &["kdeconnect.clipboard"]),
-        ("connectivity_report", &["kdeconnect.connectivity_report"],                                        &[]),
-        ("contacts",            &["kdeconnect.contacts.response_uids_timestamps",
-                                   "kdeconnect.contacts.response_vcards"],                                  &["kdeconnect.contacts.request_all_uids_timestamps",
-                                                                                                              "kdeconnect.contacts.request_vcards_by_uid"]),
-        ("findmyphone",         &[],                                                                        &["kdeconnect.findmyphone.request"]),
-        ("mpris",               &["kdeconnect.mpris", "kdeconnect.mpris.request"],                          &["kdeconnect.mpris", "kdeconnect.mpris.request"]),
-        ("notification",        &["kdeconnect.notification"],                                               &["kdeconnect.notification.request"]),
-        ("ping",                &["kdeconnect.ping"],                                                       &["kdeconnect.ping"]),
-        ("runcommand",          &["kdeconnect.runcommand.request"],                                         &["kdeconnect.runcommand"]),
-        ("share",               &["kdeconnect.share.request"],                                              &["kdeconnect.share.request", "kdeconnect.share.request.update"]),
-        ("sms",                 &["kdeconnect.sms.messages", "kdeconnect.sms.attachment_file"],             &["kdeconnect.sms.request",
-                                                                                                              "kdeconnect.sms.request_conversations",
-                                                                                                              "kdeconnect.sms.request_conversation",
-                                                                                                              "kdeconnect.sms.request_attachment"]),
-        ("telephony",           &["kdeconnect.telephony"],                                                  &["kdeconnect.telephony.request_mute"]),                                                                                                      
+        (
+            "battery",
+            &["kdeconnect.battery"],
+            &["kdeconnect.battery.request"],
+        ),
+        (
+            "clipboard",
+            &["kdeconnect.clipboard", "kdeconnect.clipboard.connect"],
+            &["kdeconnect.clipboard"],
+        ),
+        (
+            "connectivity_report",
+            &["kdeconnect.connectivity_report"],
+            &[],
+        ),
+        (
+            "contacts",
+            &[
+                "kdeconnect.contacts.response_uids_timestamps",
+                "kdeconnect.contacts.response_vcards",
+            ],
+            &[
+                "kdeconnect.contacts.request_all_uids_timestamps",
+                "kdeconnect.contacts.request_vcards_by_uid",
+            ],
+        ),
+        ("findmyphone", &[], &["kdeconnect.findmyphone.request"]),
+        (
+            "mpris",
+            &["kdeconnect.mpris", "kdeconnect.mpris.request"],
+            &["kdeconnect.mpris", "kdeconnect.mpris.request"],
+        ),
+        (
+            "notification",
+            &["kdeconnect.notification"],
+            &["kdeconnect.notification.request"],
+        ),
+        ("ping", &["kdeconnect.ping"], &["kdeconnect.ping"]),
+        (
+            "runcommand",
+            &["kdeconnect.runcommand.request"],
+            &["kdeconnect.runcommand"],
+        ),
+        (
+            "share",
+            &["kdeconnect.share.request"],
+            &[
+                "kdeconnect.share.request",
+                "kdeconnect.share.request.update",
+            ],
+        ),
+        (
+            "sms",
+            &["kdeconnect.sms.messages", "kdeconnect.sms.attachment_file"],
+            &[
+                "kdeconnect.sms.request",
+                "kdeconnect.sms.request_conversations",
+                "kdeconnect.sms.request_conversation",
+                "kdeconnect.sms.request_attachment",
+            ],
+        ),
+        (
+            "telephony",
+            &["kdeconnect.telephony"],
+            &["kdeconnect.telephony.request_mute"],
+        ),
     ];
 
     let mut remove_inc: std::collections::HashSet<&str> = std::collections::HashSet::new();
@@ -611,11 +668,15 @@ async fn filtered_identity_for_device(device_id: &str) -> Identity {
         device_type: base.device_type,
         protocol_version: base.protocol_version,
         tcp_port: base.tcp_port,
-        incoming_capabilities: base.incoming_capabilities.iter()
+        incoming_capabilities: base
+            .incoming_capabilities
+            .iter()
             .filter(|c| !remove_inc.contains(c.as_str()))
             .cloned()
             .collect(),
-        outgoing_capabilities: base.outgoing_capabilities.iter()
+        outgoing_capabilities: base
+            .outgoing_capabilities
+            .iter()
             .filter(|c| !remove_out.contains(c.as_str()))
             .cloned()
             .collect(),

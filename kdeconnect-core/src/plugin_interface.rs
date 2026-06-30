@@ -12,7 +12,7 @@ use crate::{
     GLOBAL_CONFIG,
     device::Device,
     event::{ConnectionEvent, CoreEvent},
-    filetransfer::{send_progress, TransferAdapter},
+    filetransfer::{TransferAdapter, send_progress},
     plugins::{
         self,
         battery::Battery,
@@ -123,10 +123,7 @@ impl PluginRegistry {
     ) {
         // Gate on plugin enabled state before doing any work.
         if let Some(plugin_id) = packet_plugin_id(&packet.packet_type) {
-            if !self
-                .is_plugin_enabled(&device.device_id.0, plugin_id)
-                .await
-            {
+            if !self.is_plugin_enabled(&device.device_id.0, plugin_id).await {
                 debug!(
                     "[plugin_registry] packet {:?} skipped — plugin '{}' disabled for {}",
                     packet.packet_type, plugin_id, device.device_id
@@ -469,7 +466,8 @@ fn decode_quoted_printable(input: &str) -> String {
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'=' && i + 2 < bytes.len()
+        if bytes[i] == b'='
+            && i + 2 < bytes.len()
             && bytes[i + 1].is_ascii_hexdigit()
             && bytes[i + 2].is_ascii_hexdigit()
         {

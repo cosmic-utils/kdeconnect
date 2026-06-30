@@ -124,8 +124,6 @@ pub fn accent_icon(name: &str, accent: cosmic::iced::Color) -> cosmic::widget::i
     cosmic::widget::icon::from_name(name)
         .path()
         .and_then(|path| std::fs::read_to_string(path).ok())
-        .map(|svg| {
-            cosmic::widget::icon::from_svg_bytes(svg.replace("#232323", &hex).into_bytes())
-        })
+        .map(|svg| cosmic::widget::icon::from_svg_bytes(svg.replace("#232323", &hex).into_bytes()))
         .unwrap_or_else(|| cosmic::widget::icon::from_name(name).handle())
 }
