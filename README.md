@@ -114,6 +114,11 @@ Requires `flatpak-builder`:
 flatpak-builder --force-clean --user --install-deps-from=flathub --repo=repo --install builddir io.github.hepp3n.kdeconnect.json
 ```
 
+# Conflicts
+
+This KDE Connect implementation conflicts with the official KDE Connect implementation. The reason is, both use the same port range (1714-1764) for communication.
+To avoid conflicts, you should uninstall the official KDE Connect package from your distribution.
+
 # Troubleshooting
 
 ## Firewall
