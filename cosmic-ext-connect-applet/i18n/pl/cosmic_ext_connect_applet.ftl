@@ -1,5 +1,6 @@
 # Applet header
 applet-title = Cosmic Ext Connect
+applet-description = Natywna implementacja KDE Connect dla pulpitu COSMIC
 applet-settings = Ustawienia
 
 # Pairing

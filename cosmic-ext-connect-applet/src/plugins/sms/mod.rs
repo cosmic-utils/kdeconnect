@@ -1,5 +1,5 @@
-mod emoji;
 mod avatar;
+mod emoji;
 mod utils;
 mod views;
 
