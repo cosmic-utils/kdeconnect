@@ -490,7 +490,6 @@ impl cosmic::Application for KdeConnectApplet {
                     &self.devices,
                     self.expanded_device.as_ref(),
                     Some(&self.pairing_requests),
-                    &self.unread_sms,
                     self.error_banner.as_ref(),
                     &self.now_playing,
                 );
