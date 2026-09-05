@@ -58,7 +58,10 @@ pub async fn pick_files(
 
 /// Opens a native "Save As" dialog and returns the chosen destination
 /// path, or `None` if cancelled/failed.
-pub async fn save_file(title: impl Into<String>, suggested_name: impl Into<String>) -> Option<String> {
+pub async fn save_file(
+    title: impl Into<String>,
+    suggested_name: impl Into<String>,
+) -> Option<String> {
     let title_str = title.into();
     let name_str = suggested_name.into();
 

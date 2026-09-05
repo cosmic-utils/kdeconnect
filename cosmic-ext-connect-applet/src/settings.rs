@@ -1,6 +1,7 @@
 #[macro_use]
 extern crate cosmic_ext_connect_applet;
 
+use cosmic::cosmic_config::{ConfigGet, ConfigSet};
 use cosmic::{
     Action, Application, ApplicationExt, Element, Task,
     app::Core,
@@ -10,7 +11,6 @@ use cosmic::{
 use cosmic_ext_connect_applet::{backend, models::Device};
 use futures::StreamExt as _;
 use std::collections::HashMap;
-use cosmic::cosmic_config::{ConfigGet, ConfigSet};
 
 /// A desktop command stored as JSON: {id, name, command}
 type LocalCommand = serde_json::Value;
@@ -63,84 +63,84 @@ fn implemented_plugins() -> &'static [PluginInfo] {
     use std::sync::LazyLock;
     static PLUGINS: LazyLock<Vec<PluginInfo>> = LazyLock::new(|| {
         vec![
-        PluginInfo {
-            id: "battery",
-            name: fl!("plugin-battery-name"),
-            description: fl!("plugin-battery-desc"),
-            icon: "battery-full-symbolic",
-        },
-    PluginInfo {
-        id: "clipboard",
-        name: fl!("plugin-clipboard-name"),
-        description: fl!("plugin-clipboard-desc"),
-        icon: "edit-paste-symbolic",
-    },
-    PluginInfo {
-        id: "connectivity_report",
-        name: fl!("plugin-connectivity-name"),
-        description: fl!("plugin-connectivity-desc"),
-        icon: "network-cellular-symbolic",
-    },
-    PluginInfo {
-        id: "contacts",
-        name: fl!("plugin-contacts-name"),
-        description: fl!("plugin-contacts-desc"),
-        icon: "x-office-address-book-symbolic",
-    },
-    PluginInfo {
-        id: "findmyphone",
-        name: fl!("plugin-findmyphone-name"),
-        description: fl!("plugin-findmyphone-desc"),
-        icon: "audio-speakers-symbolic",
-    },
-    PluginInfo {
-        id: "mpris",
-        name: fl!("plugin-mpris-name"),
-        description: fl!("plugin-mpris-desc"),
-        icon: "media-playback-start-symbolic",
-    },
-    PluginInfo {
-        id: "notification",
-        name: fl!("plugin-notifications-name"),
-        description: fl!("plugin-notifications-desc"),
-        icon: "preferences-system-notifications-symbolic",
-    },
-    PluginInfo {
-        id: "ping",
-        name: fl!("plugin-ping-name"),
-        description: fl!("plugin-ping-desc"),
-        icon: "network-transmit-receive-symbolic",
-    },
-    PluginInfo {
-        id: "runcommand",
-        name: fl!("plugin-runcommand-name"),
-        description: fl!("plugin-runcommand-desc"),
-        icon: "utilities-terminal-symbolic",
-    },
-    PluginInfo {
-        id: "share",
-        name: fl!("plugin-share-name"),
-        description: fl!("plugin-share-desc"),
-        icon: "document-send-symbolic",
-    },
-    PluginInfo {
-        id: "sms",
-        name: fl!("plugin-sms-name"),
-        description: fl!("plugin-sms-desc"),
-        icon: "mail-message-new-symbolic",
-    },
-    PluginInfo {
-        id: "systemvolume",
-        name: fl!("plugin-systemvolume-name"),
-        description: fl!("plugin-systemvolume-desc"),
-        icon: "audio-volume-high-symbolic",
-    },
-    PluginInfo {
-        id: "telephony",
-        name: fl!("plugin-telephony-name"),
-        description: fl!("plugin-telephony-desc"),
-        icon: "phone-symbolic",
-    },
+            PluginInfo {
+                id: "battery",
+                name: fl!("plugin-battery-name"),
+                description: fl!("plugin-battery-desc"),
+                icon: "battery-full-symbolic",
+            },
+            PluginInfo {
+                id: "clipboard",
+                name: fl!("plugin-clipboard-name"),
+                description: fl!("plugin-clipboard-desc"),
+                icon: "edit-paste-symbolic",
+            },
+            PluginInfo {
+                id: "connectivity_report",
+                name: fl!("plugin-connectivity-name"),
+                description: fl!("plugin-connectivity-desc"),
+                icon: "network-cellular-symbolic",
+            },
+            PluginInfo {
+                id: "contacts",
+                name: fl!("plugin-contacts-name"),
+                description: fl!("plugin-contacts-desc"),
+                icon: "x-office-address-book-symbolic",
+            },
+            PluginInfo {
+                id: "findmyphone",
+                name: fl!("plugin-findmyphone-name"),
+                description: fl!("plugin-findmyphone-desc"),
+                icon: "audio-speakers-symbolic",
+            },
+            PluginInfo {
+                id: "mpris",
+                name: fl!("plugin-mpris-name"),
+                description: fl!("plugin-mpris-desc"),
+                icon: "media-playback-start-symbolic",
+            },
+            PluginInfo {
+                id: "notification",
+                name: fl!("plugin-notifications-name"),
+                description: fl!("plugin-notifications-desc"),
+                icon: "preferences-system-notifications-symbolic",
+            },
+            PluginInfo {
+                id: "ping",
+                name: fl!("plugin-ping-name"),
+                description: fl!("plugin-ping-desc"),
+                icon: "network-transmit-receive-symbolic",
+            },
+            PluginInfo {
+                id: "runcommand",
+                name: fl!("plugin-runcommand-name"),
+                description: fl!("plugin-runcommand-desc"),
+                icon: "utilities-terminal-symbolic",
+            },
+            PluginInfo {
+                id: "share",
+                name: fl!("plugin-share-name"),
+                description: fl!("plugin-share-desc"),
+                icon: "document-send-symbolic",
+            },
+            PluginInfo {
+                id: "sms",
+                name: fl!("plugin-sms-name"),
+                description: fl!("plugin-sms-desc"),
+                icon: "mail-message-new-symbolic",
+            },
+            PluginInfo {
+                id: "systemvolume",
+                name: fl!("plugin-systemvolume-name"),
+                description: fl!("plugin-systemvolume-desc"),
+                icon: "audio-volume-high-symbolic",
+            },
+            PluginInfo {
+                id: "telephony",
+                name: fl!("plugin-telephony-name"),
+                description: fl!("plugin-telephony-desc"),
+                icon: "phone-symbolic",
+            },
         ]
     });
     &PLUGINS
@@ -228,10 +228,9 @@ impl SettingsApp {
     }
 
     fn refresh_devices_task() -> Task<Action<Message>> {
-        Task::perform(
-            async { backend::fetch_devices().await },
-            |devices| Action::App(Message::DevicesLoaded(devices)),
-        )
+        Task::perform(async { backend::fetch_devices().await }, |devices| {
+            Action::App(Message::DevicesLoaded(devices))
+        })
     }
 }
 
@@ -264,10 +263,8 @@ impl Application for SettingsApp {
 
         app.core.window.header_title = fl!("settings-title").into();
 
-        let title_task = app.set_window_title(
-            fl!("settings-title"),
-            app.core.main_window_id().unwrap(),
-        );
+        let title_task =
+            app.set_window_title(fl!("settings-title"), app.core.main_window_id().unwrap());
 
         let load_task = Task::perform(
             async {
@@ -279,10 +276,9 @@ impl Application for SettingsApp {
             |devices| Action::App(Message::DevicesLoaded(devices)),
         );
 
-        let cmds_task = Task::perform(
-            async { load_run_commands() },
-            |cmds| Action::App(Message::RunCommandsLoaded(cmds)),
-        );
+        let cmds_task = Task::perform(async { load_run_commands() }, |cmds| {
+            Action::App(Message::RunCommandsLoaded(cmds))
+        });
 
         (app, Task::batch(vec![title_task, load_task, cmds_task]))
     }
@@ -370,9 +366,7 @@ impl Application for SettingsApp {
                     let pid = plugin_id;
                     return Task::perform(
                         async move {
-                            if let Err(e) =
-                                backend::set_plugin_enabled(did, pid, enabled).await
-                            {
+                            if let Err(e) = backend::set_plugin_enabled(did, pid, enabled).await {
                                 eprintln!("[settings] set_plugin_enabled failed: {:?}", e);
                             }
                         },
@@ -497,10 +491,7 @@ impl Application for SettingsApp {
 // ---------------------------------------------------------------------------
 
 impl SettingsApp {
-    fn view_tab_bar<'a>(
-        &'a self,
-        spacing: &cosmic::cosmic_theme::Spacing,
-    ) -> Element<'a, Message> {
+    fn view_tab_bar<'a>(&'a self, spacing: &cosmic::cosmic_theme::Spacing) -> Element<'a, Message> {
         let paired_btn = if self.active_tab == Tab::PairedDevices {
             widget::button::standard(fl!("settings-tab-paired"))
                 .on_press(Message::SelectTab(Tab::PairedDevices))
@@ -549,11 +540,8 @@ impl SettingsApp {
 
         if paired.is_empty() {
             col = col.push(
-                widget::container(
-                    widget::text(fl!("paired-devices-none"))
-                        .size(12),
-                )
-                .padding(spacing.space_s),
+                widget::container(widget::text(fl!("paired-devices-none")).size(12))
+                    .padding(spacing.space_s),
             );
         } else {
             for device in &paired {
@@ -587,12 +575,21 @@ impl SettingsApp {
 
                 if is_selected {
                     col = col.push(
-                        widget::container(widget::button::custom(item).width(Length::Fill).on_press(Message::SelectDevice(device_id)).class(cosmic::theme::Button::Suggested))
-                            .class(cosmic::theme::Container::Primary)
-                            .width(Length::Fill),
+                        widget::container(
+                            widget::button::custom(item)
+                                .width(Length::Fill)
+                                .on_press(Message::SelectDevice(device_id))
+                                .class(cosmic::theme::Button::Suggested),
+                        )
+                        .class(cosmic::theme::Container::Primary)
+                        .width(Length::Fill),
                     );
                 } else {
-                    col = col.push(widget::button::custom(item).class(cosmic::theme::Button::Standard).on_press(Message::SelectDevice(device_id)));
+                    col = col.push(
+                        widget::button::custom(item)
+                            .class(cosmic::theme::Button::Standard)
+                            .on_press(Message::SelectDevice(device_id)),
+                    );
                 }
             }
         }
@@ -641,10 +638,8 @@ impl SettingsApp {
 
         if self.selected_device.is_none() {
             col = col.push(
-                widget::container(
-                    widget::text(fl!("paired-plugins-hint")).size(14),
-                )
-                .padding(spacing.space_l),
+                widget::container(widget::text(fl!("paired-plugins-hint")).size(14))
+                    .padding(spacing.space_l),
             );
             return widget::scrollable(col).height(Length::Fill).into();
         }
@@ -673,7 +668,10 @@ impl SettingsApp {
                         .push(widget::text(plugin.description.as_str()).size(12))
                         .width(Length::Fill),
                 )
-                .push(widget::toggler(enabled).on_toggle(move |f| Message::TogglePlugin(plugin_id.clone(), f)));
+                .push(
+                    widget::toggler(enabled)
+                        .on_toggle(move |f| Message::TogglePlugin(plugin_id.clone(), f)),
+                );
 
             col = col.push(
                 widget::container(row)
@@ -716,12 +714,12 @@ impl SettingsApp {
                         .font(cosmic::font::bold())
                         .width(Length::Fill),
                 )
-                .push(widget::button::standard(fl!("settings-scan-again")).on_press(Message::Refresh)),
+                .push(
+                    widget::button::standard(fl!("settings-scan-again")).on_press(Message::Refresh),
+                ),
         );
         col = col.push(widget::divider::horizontal::default());
-        col = col.push(
-            widget::text(fl!("available-devices-hint")).size(13),
-        );
+        col = col.push(widget::text(fl!("available-devices-hint")).size(13));
 
         if available.is_empty() {
             col = col.push(
@@ -734,11 +732,11 @@ impl SettingsApp {
                                 .size(16)
                                 .font(cosmic::font::bold()),
                         )
+                        .push(widget::text(fl!("available-devices-none-hint")).size(13))
                         .push(
-                            widget::text(fl!("available-devices-none-hint"))
-                            .size(13),
+                            widget::button::standard(fl!("settings-scan-again"))
+                                .on_press(Message::Refresh),
                         )
-                        .push(widget::button::standard(fl!("settings-scan-again")).on_press(Message::Refresh))
                         .align_x(Alignment::Center),
                 )
                 .padding([spacing.space_xl, spacing.space_m])
@@ -836,13 +834,16 @@ impl SettingsApp {
                 .width(Length::Fill),
         );
         col = col.push(
-            widget::text_input(fl!("run-commands-command-placeholder"), &self.new_cmd_command)
-                .on_input(Message::NewRunCommandCommand)
-                .width(Length::Fill),
+            widget::text_input(
+                fl!("run-commands-command-placeholder"),
+                &self.new_cmd_command,
+            )
+            .on_input(Message::NewRunCommandCommand)
+            .width(Length::Fill),
         );
         col = col.push(
             widget::button::suggested(fl!("run-commands-add-button"))
-                .on_press(Message::AddRunCommand)
+                .on_press(Message::AddRunCommand),
         );
 
         widget::container(col)
@@ -854,7 +855,6 @@ impl SettingsApp {
 }
 
 fn main() -> cosmic::iced::Result {
-    let settings = cosmic::app::Settings::default()
-        .size(cosmic::iced::Size::new(740.0, 540.0));
+    let settings = cosmic::app::Settings::default().size(cosmic::iced::Size::new(740.0, 540.0));
     cosmic::app::run::<SettingsApp>(settings, ())
 }

@@ -115,7 +115,10 @@ fn merge_device(
         has_presenter: false,
         has_lockdevice: false,
         has_virtualmonitor: false,
-        run_commands: existing.as_ref().map(|e| e.run_commands.clone()).unwrap_or_default(),
+        run_commands: existing
+            .as_ref()
+            .map(|e| e.run_commands.clone())
+            .unwrap_or_default(),
     };
     cache.insert(id, device.clone());
     device
@@ -134,7 +137,17 @@ pub async fn fetch_devices() -> Vec<Device> {
         let devices: Vec<Device> = reply
             .devices
             .into_iter()
-            .map(|d| merge_device(d.id, d.name, d.device_type, d.is_paired, d.is_reachable, &mounted, &mut cache))
+            .map(|d| {
+                merge_device(
+                    d.id,
+                    d.name,
+                    d.device_type,
+                    d.is_paired,
+                    d.is_reachable,
+                    &mounted,
+                    &mut cache,
+                )
+            })
             .collect();
         return devices;
     }
@@ -150,7 +163,17 @@ pub async fn fetch_devices() -> Vec<Device> {
             let mut cache = DEVICE_CACHE.lock().await;
             dbus_devices
                 .into_iter()
-                .map(|d| merge_device(d.id, d.name, "phone".to_string(), d.is_paired, d.is_reachable, &mounted, &mut cache))
+                .map(|d| {
+                    merge_device(
+                        d.id,
+                        d.name,
+                        "phone".to_string(),
+                        d.is_paired,
+                        d.is_reachable,
+                        &mounted,
+                        &mut cache,
+                    )
+                })
                 .collect()
         }
         Err(e) => {
@@ -171,7 +194,11 @@ pub async fn pair_device(device_id: String) -> Result<()> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.pair_device(id).call().await.map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).pair_device(&device_id).await
 }
@@ -183,7 +210,11 @@ pub async fn unpair_device(device_id: String) -> Result<()> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.unpair_device(id).call().await.map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).unpair_device(&device_id).await
 }
@@ -193,11 +224,20 @@ pub async fn ping_device(device_id: String) -> Result<()> {
         let id = device_id.clone();
         async move {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
-            c.send_ping(id, "Ping from COSMIC!".into()).call().await.map(|_| ())
+            c.send_ping(id, "Ping from COSMIC!".into())
+                .call()
+                .await
+                .map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
-    dbus_client!(g).send_ping(&device_id, "Ping from COSMIC!").await
+    dbus_client!(g)
+        .send_ping(&device_id, "Ping from COSMIC!")
+        .await
 }
 
 pub async fn send_files(device_id: String, files: Vec<String>) -> Result<()> {
@@ -208,7 +248,11 @@ pub async fn send_files(device_id: String, files: Vec<String>) -> Result<()> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.send_files(id, f).call().await.map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).send_files(&device_id, files).await
 }
@@ -221,7 +265,11 @@ pub async fn share_clipboard(device_id: String) -> Result<()> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.share_clipboard(id).call().await.map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).share_clipboard(&device_id).await
 }
@@ -233,7 +281,11 @@ pub async fn browse_device_filesystem(device_id: String) -> Result<()> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.browse_device(id).call().await.map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).browse_device(&device_id).await
 }
@@ -246,7 +298,11 @@ pub async fn unmount_device(device_id: String) -> Result<()> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.unmount_device(id).call().await.map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).unmount_device(&device_id).await
 }
@@ -257,7 +313,9 @@ pub async fn mounted_devices() -> Vec<String> {
     if let Some(Ok(reply)) = via_varlink(|c| async move {
         use kdeconnect_varlink::iface::VarlinkClientInterface;
         c.mounted_devices().call().await
-    }).await {
+    })
+    .await
+    {
         return reply.device_ids;
     }
     let g = CLIENT.lock().await;
@@ -274,7 +332,11 @@ pub async fn accept_pairing(device_id: String) -> Result<()> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.accept_pairing(id).call().await.map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).accept_pairing(&device_id).await
 }
@@ -286,7 +348,11 @@ pub async fn reject_pairing(device_id: String) -> Result<()> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.reject_pairing(id).call().await.map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).reject_pairing(&device_id).await
 }
@@ -298,7 +364,11 @@ pub async fn ring_device(device_id: String) -> Result<()> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.ring_device(id).call().await.map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).ring_device(&device_id).await
 }
@@ -309,11 +379,20 @@ pub async fn set_plugin_enabled(device_id: String, plugin_id: String, enabled: b
         let plug = plugin_id.clone();
         async move {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
-            c.set_plugin_enabled(id, plug, enabled).call().await.map(|_| ())
+            c.set_plugin_enabled(id, plug, enabled)
+                .call()
+                .await
+                .map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
-    dbus_client!(g).set_plugin_enabled(&device_id, &plugin_id, enabled).await
+    dbus_client!(g)
+        .set_plugin_enabled(&device_id, &plugin_id, enabled)
+        .await
 }
 
 pub async fn get_disabled_plugins(device_id: String) -> Vec<String> {
@@ -323,7 +402,9 @@ pub async fn get_disabled_plugins(device_id: String) -> Vec<String> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.get_disabled_plugins(id).call().await
         }
-    }).await {
+    })
+    .await
+    {
         return reply.plugins;
     }
 
@@ -354,7 +435,9 @@ pub async fn has_unread_sms(device_id: String) -> bool {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.get_cached_sms(id).call().await
         }
-    }).await {
+    })
+    .await
+    {
         Some(reply.json)
     } else {
         let g = CLIENT.lock().await;
@@ -387,7 +470,11 @@ pub async fn broadcast_identity() -> Result<()> {
     if let Some(r) = via_varlink(|c| async move {
         use kdeconnect_varlink::iface::VarlinkClientInterface;
         c.broadcast_identity().call().await.map(|_| ())
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).broadcast_identity().await
 }
@@ -399,7 +486,11 @@ pub async fn request_run_commands(device_id: String) -> Result<()> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.request_run_commands(id).call().await.map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).request_run_commands(&device_id).await
 }
@@ -412,7 +503,11 @@ pub async fn execute_run_command(device_id: String, key: String) -> Result<()> {
             use kdeconnect_varlink::iface::VarlinkClientInterface;
             c.run_command(id, k).call().await.map(|_| ())
         }
-    }).await { return r; }
+    })
+    .await
+    {
+        return r;
+    }
     let g = CLIENT.lock().await;
     dbus_client!(g).run_command(&device_id, &key).await
 }
@@ -585,7 +680,10 @@ async fn session_bus() -> Option<&'static zbus::Connection> {
         .ok()
 }
 
-#[zbus::proxy(interface = "org.mpris.MediaPlayer2", default_path = "/org/mpris/MediaPlayer2")]
+#[zbus::proxy(
+    interface = "org.mpris.MediaPlayer2",
+    default_path = "/org/mpris/MediaPlayer2"
+)]
 trait MprisRoot {
     #[zbus(property)]
     fn identity(&self) -> zbus::Result<String>;
@@ -658,7 +756,11 @@ async fn read_now_playing(connection: &zbus::Connection, bus_name: &str) -> Opti
     let art_path = metadata
         .get("mpris:artUrl")
         .and_then(|v| String::try_from(v.clone()).ok())
-        .map(|uri| uri.strip_prefix("file://").map(str::to_string).unwrap_or(uri));
+        .map(|uri| {
+            uri.strip_prefix("file://")
+                .map(str::to_string)
+                .unwrap_or(uri)
+        });
 
     Some(NowPlaying {
         identity,
