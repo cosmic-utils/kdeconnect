@@ -4,7 +4,7 @@ applet-settings = Ustawienia
 
 # Pairing
 pairing-requests = Parowanie
-pairing-wants-to-pair = Prosi o parowanie
+pairing-wants-to-pair = Prośba o sparowanie
 pairing-accept = Akceptuj
 pairing-reject = Odrzuć
 
@@ -15,7 +15,7 @@ devices-offline = Brak połączenia
 devices-not-reachable = Urządzenie nieosiągalne
 
 # Media section (popup)
-media-header = Aktualnie odtwarzane
+media-header = Teraz odtwarzane
 
 # Quick actions (popup)
 quick-actions-header = Szybkie akcje
@@ -38,7 +38,7 @@ run-commands-add-button = Dodaj komende
 run-commands-delete = Usuń
 
 # Settings window
-settings-title = KDE Connect Ustawienia
+settings-title = Ustawienia KDE Connect
 settings-tab-paired = Sparowane urządzenia
 settings-tab-available = Dostępne urządzenia
 settings-scan-again = Skanuj ponownie
@@ -47,7 +47,7 @@ settings-scan-again = Skanuj ponownie
 paired-devices-header = Sparowane urządzenia
 paired-devices-none =
     Brak sparowanych urządzeń.
-    Użyj zakładki Dostępne urządzenia aby sparować
+    Użyj karty Dostępne urządzenia aby sparować
 paired-devices-connected = Połączono
 paired-devices-offline = Brak połączenia
 paired-devices-unpair = Odparuj
@@ -72,13 +72,13 @@ plugin-connectivity-desc = Pokaż siłe sygnału i typ sieci urządzenia mobilne
 plugin-contacts-name = Kontakty
 plugin-contacts-desc = Synchronizuj konatakty, aby wiadomości SMS pokazywały nazwy kontaktu zamiast numeru.
 plugin-findmyphone-name = Znajdź moje urządzenie
-plugin-findmyphone-desc = Zadzwoń telefonem z pełną głośnością, aby go zlokalizować.
-plugin-mpris-name = Kontrola mediów
-plugin-mpris-desc = Kontroluj odtwarzanie mediów na twoim telefonie prosto z pulpitu.
+plugin-findmyphone-desc = Zadzwoń telefonem na pełnej głośności, aby go zlokalizować.
+plugin-mpris-name = Sterowanie mediami
+plugin-mpris-desc = Steruj odtwarzaniem mediów na swoim telefonie prosto z pulpitu.
 plugin-notifications-name = Powiadomienia
 plugin-notifications-desc = Otrzymuj powiadomienia z telefonu na pulpicie.
 plugin-ping-name = Ping
-plugin-ping-desc = Wysyłaj i otrzymuj powiadomienia ping, w celu weryfikacji poprawności połączenia.
+plugin-ping-desc = Wysyłaj i otrzymuj pingi, by zweryfikować poprawność połączenia.
 plugin-runcommand-name = Uruchamianie komend
 plugin-runcommand-desc = Uruchamiaj komendy na pulpicie prosto z telefonu.
 plugin-share-name = Udostępniaj pliki
@@ -103,8 +103,8 @@ sms-save-success-summary = Załącznik zapisany
 sms-save-failed-summary = Zapisanie załącznika niepowiodło się
 sms-no-conversations = Brak dyskusji
 sms-no-matching-conversations = Brak powiązanych dyskusji
-sms-select-conversation = Wybierz konwersacje, aby zobaczyć wiadomości
-sms-conversation-not-found = Nie znaleziono konwersacji
+sms-select-conversation = Wybierz rozmowę, aby zobaczyć wiadomości
+sms-conversation-not-found = Nie znaleziono rozmowy
 sms-waiting-for-messages = Oczekiwanie na wiadomości…
 sms-messages-will-appear = Wiadomości zostaną wyświetlone po synchronizacji
 sms-message-placeholder = Napisz wiadomość…
@@ -120,12 +120,13 @@ sms-new-chat-no-contacts = Brak kontaktów
 sms-new-chat-no-matches = Brak powiązanych kontaktów
 sms-new-chat-showing = Pokaż { $count } kontakt{ $count ->
     [one] {""}
-    *[other] y
+    [few] y
+    *[other] ów
 }
 
 # SMS delete confirmation dialog
-sms-delete-confirm-title = Usunąc konwersacje?
-sms-delete-confirm-body = Czy chcesz usunąć konwersacje z { $name }, tylko z tego urządzenia? — to nie usunie jej z telefonu, a nowe wiadomości zostaną ukryte.
+sms-delete-confirm-title = Usunąc rozmowę?
+sms-delete-confirm-body = Czy chcesz usunąć rozmowę z { $name }, tylko z tego urządzenia? — to nie usunie jej z telefonu, a nowe wiadomości zostaną ukryte.
 sms-delete-confirm-action = Usuń
 sms-delete-confirm-cancel = Anuluj
 
