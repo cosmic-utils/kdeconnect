@@ -2,6 +2,7 @@
 extern crate cosmic_ext_connect_applet;
 
 use cosmic::cosmic_config::{ConfigGet, ConfigSet};
+use cosmic::widget::nav_bar;
 use cosmic::{
     Action, Application, ApplicationExt, Element, Task,
     app::Core,
@@ -152,8 +153,8 @@ fn implemented_plugins() -> &'static [PluginInfo] {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tab {
-    PairedDevices,
     AvailableDevices,
+    DeviceProfile,
 }
 
 // ---------------------------------------------------------------------------
@@ -166,8 +167,6 @@ pub enum Message {
     /// Fired when persisted plugin states are read back for a device.
     /// Payload is (device_id, list-of-disabled-plugin-ids).
     PluginStatesLoaded(String, Vec<String>),
-    SelectTab(Tab),
-    SelectDevice(String),
     TogglePlugin(String, bool),
     Refresh,
     PairDevice(String),
@@ -188,6 +187,7 @@ pub enum Message {
 
 pub struct SettingsApp {
     core: Core,
+    nav: nav_bar::Model,
     active_tab: Tab,
     devices: Vec<Device>,
     selected_device: Option<String>,
@@ -249,10 +249,19 @@ impl Application for SettingsApp {
     }
 
     fn init(core: Core, _flags: Self::Flags) -> (Self, Task<Action<Self::Message>>) {
+        let mut nav = nav_bar::Model::default();
+
+        nav.insert()
+            .text(fl!("settings-tab-available"))
+            .data::<(Tab, Option<String>)>((Tab::AvailableDevices, None))
+            .icon(widget::icon::from_name("list-add-symbolic"))
+            .activate();
+
         let mut app = Self {
             core,
-            active_tab: Tab::PairedDevices,
-            devices: Vec::new(),
+            nav,
+            active_tab: Tab::AvailableDevices,
+            devices: vec![],
             selected_device: None,
             plugin_states: HashMap::new(),
             pairing_in_progress: HashMap::new(),
@@ -296,9 +305,49 @@ impl Application for SettingsApp {
         })
     }
 
+    fn nav_model(&self) -> Option<&nav_bar::Model> {
+        Some(&self.nav)
+    }
+
+    fn on_nav_select(&mut self, id: nav_bar::Id) -> Task<cosmic::Action<Self::Message>> {
+        // Activate the page in the model.
+        self.nav.activate(id);
+
+        if let Some(data) = self.nav.data::<(Tab, Option<String>)>(id) {
+            self.active_tab = data.0.to_owned();
+
+            if let Some(device_id) = &data.1 {
+                self.selected_device = Some(device_id.clone());
+
+                // Show defaults immediately, then load persisted state
+                self.plugin_states
+                    .entry(device_id.clone())
+                    .or_insert_with(Self::default_plugin_map);
+
+                return Self::load_plugin_states_task(device_id.clone());
+            }
+        } else {
+            if self.active_tab == Tab::AvailableDevices {
+                return Self::refresh_devices_task();
+            }
+        }
+
+        Task::none()
+    }
+
     fn update(&mut self, message: Self::Message) -> Task<Action<Self::Message>> {
         match message {
             Message::DevicesLoaded(devices) => {
+                // Rebuild nav-bar model
+                self.nav.clear();
+
+                self.nav
+                    .insert()
+                    .text(fl!("settings-tab-available"))
+                    .data::<(Tab, Option<String>)>((Tab::AvailableDevices, None))
+                    .icon(widget::icon::from_name("list-add-symbolic"))
+                    .activate();
+
                 if let Some(sel) = self.selected_device.clone() {
                     // Clear selection if the device is gone or no longer paired.
                     let still_paired = devices.iter().any(|d| d.id == sel && d.is_paired);
@@ -307,7 +356,7 @@ impl Application for SettingsApp {
                         self.selected_device = None;
                     }
                 }
-                let prev = self.selected_device.clone();
+
                 if self.selected_device.is_none() {
                     self.selected_device =
                         devices.iter().find(|d| d.is_paired).map(|d| d.id.clone());
@@ -317,42 +366,27 @@ impl Application for SettingsApp {
                         self.pairing_in_progress.remove(&d.id);
                     }
                 }
+
                 self.devices = devices;
 
-                // Load plugin states if we auto-selected a new device
-                if self.selected_device != prev {
-                    if let Some(did) = self.selected_device.clone() {
-                        return Self::load_plugin_states_task(did);
-                    }
+                for d in &self.devices {
+                    self.nav
+                        .insert()
+                        .text(d.name.to_string())
+                        .data::<(Tab, Option<String>)>((Tab::DeviceProfile, Some(d.id.clone())))
+                        .divider_above(true)
+                        .icon(widget::icon::from_name("smartphone-symbolic"));
                 }
             }
 
             Message::PluginStatesLoaded(device_id, disabled) => {
                 let mut map = Self::default_plugin_map();
+
                 for pid in disabled {
                     map.insert(pid, false);
                 }
+
                 self.plugin_states.insert(device_id, map);
-            }
-
-            Message::SelectTab(tab) => {
-                let trigger_broadcast = tab == Tab::AvailableDevices;
-                self.active_tab = tab;
-                if trigger_broadcast {
-                    return Self::refresh_devices_task();
-                }
-            }
-
-            Message::SelectDevice(id) => {
-                let changed = self.selected_device.as_deref() != Some(&id);
-                self.selected_device = Some(id.clone());
-                if changed {
-                    // Show defaults immediately, then load persisted state
-                    self.plugin_states
-                        .entry(id.clone())
-                        .or_insert_with(Self::default_plugin_map);
-                    return Self::load_plugin_states_task(id);
-                }
             }
 
             Message::TogglePlugin(plugin_id, enabled) => {
@@ -467,22 +501,12 @@ impl Application for SettingsApp {
     fn view(&self) -> Element<'_, Self::Message> {
         let spacing = cosmic::theme::active().cosmic().spacing;
 
-        let content: Element<'_, Message> = match self.active_tab {
-            Tab::PairedDevices => widget::Row::new()
-                .push(self.view_paired_sidebar(&spacing))
-                .push(widget::divider::vertical::default())
-                .push(self.view_plugin_panel(&spacing))
-                .height(Length::Fill)
-                .into(),
+        let content: Element<'_, Message> = match &self.active_tab {
+            Tab::DeviceProfile => self.view_plugin_panel(&spacing),
             Tab::AvailableDevices => self.view_available_devices(&spacing),
         };
 
-        widget::Column::new()
-            .push(self.view_tab_bar(&spacing))
-            .push(widget::divider::horizontal::default())
-            .push(content)
-            .height(Length::Fill)
-            .into()
+        content.into()
     }
 }
 
@@ -491,112 +515,6 @@ impl Application for SettingsApp {
 // ---------------------------------------------------------------------------
 
 impl SettingsApp {
-    fn view_tab_bar<'a>(&'a self, spacing: &cosmic::cosmic_theme::Spacing) -> Element<'a, Message> {
-        let paired_btn = if self.active_tab == Tab::PairedDevices {
-            widget::button::standard(fl!("settings-tab-paired"))
-                .on_press(Message::SelectTab(Tab::PairedDevices))
-        } else {
-            widget::button::text(fl!("settings-tab-paired"))
-                .on_press(Message::SelectTab(Tab::PairedDevices))
-                .class(cosmic::theme::Button::Link)
-        };
-
-        let available_btn = if self.active_tab == Tab::AvailableDevices {
-            widget::button::standard(fl!("settings-tab-available"))
-                .on_press(Message::SelectTab(Tab::AvailableDevices))
-        } else {
-            widget::button::text(fl!("settings-tab-available"))
-                .on_press(Message::SelectTab(Tab::AvailableDevices))
-                .class(cosmic::theme::Button::Link)
-        };
-
-        widget::Row::new()
-            .spacing(spacing.space_xs)
-            .padding([spacing.space_xs, spacing.space_m])
-            .align_y(Alignment::Center)
-            .push(paired_btn)
-            .push(available_btn)
-            .push(widget::Space::new().width(Length::Fill))
-            .into()
-    }
-
-    fn view_paired_sidebar<'a>(
-        &'a self,
-        spacing: &cosmic::cosmic_theme::Spacing,
-    ) -> Element<'a, Message> {
-        let paired: Vec<&Device> = self.devices.iter().filter(|d| d.is_paired).collect();
-
-        let mut col = widget::Column::new()
-            .spacing(spacing.space_xxs)
-            .padding(spacing.space_s)
-            .width(Length::Fixed(220.0));
-
-        col = col.push(
-            widget::text(fl!("paired-devices-header"))
-                .size(13)
-                .font(cosmic::font::bold()),
-        );
-        col = col.push(widget::divider::horizontal::default());
-
-        if paired.is_empty() {
-            col = col.push(
-                widget::container(widget::text(fl!("paired-devices-none")).size(12))
-                    .padding(spacing.space_s),
-            );
-        } else {
-            for device in &paired {
-                let device_id = device.id.clone();
-                let is_selected = self.selected_device.as_deref() == Some(&device.id);
-                let status_icon = if device.is_reachable {
-                    "network-wireless-symbolic"
-                } else {
-                    "network-offline-symbolic"
-                };
-
-                let item = widget::Row::new()
-                    .spacing(spacing.space_s)
-                    .align_y(Alignment::Center)
-                    .push(widget::icon::from_name(device.device_icon()).size(20))
-                    .push(
-                        widget::Column::new()
-                            .spacing(2)
-                            .push(widget::text(&device.name).size(13))
-                            .push(
-                                widget::text(if device.is_reachable {
-                                    fl!("paired-devices-connected")
-                                } else {
-                                    fl!("paired-devices-offline")
-                                })
-                                .size(11),
-                            )
-                            .width(Length::Fill),
-                    )
-                    .push(widget::icon::from_name(status_icon).size(14));
-
-                if is_selected {
-                    col = col.push(
-                        widget::container(
-                            widget::button::custom(item)
-                                .width(Length::Fill)
-                                .on_press(Message::SelectDevice(device_id))
-                                .class(cosmic::theme::Button::Suggested),
-                        )
-                        .class(cosmic::theme::Container::Primary)
-                        .width(Length::Fill),
-                    );
-                } else {
-                    col = col.push(
-                        widget::button::custom(item)
-                            .class(cosmic::theme::Button::Standard)
-                            .on_press(Message::SelectDevice(device_id)),
-                    );
-                }
-            }
-        }
-
-        widget::scrollable(col).height(Length::Fill).into()
-    }
-
     fn view_plugin_panel<'a>(
         &'a self,
         spacing: &cosmic::cosmic_theme::Spacing,
