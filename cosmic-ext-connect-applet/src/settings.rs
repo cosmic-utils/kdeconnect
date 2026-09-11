@@ -313,26 +313,23 @@ impl Application for SettingsApp {
         // Activate the page in the model.
         self.nav.activate(id);
 
-        if let Some(data) = self.nav.data::<(Tab, Option<String>)>(id) {
-            self.active_tab = data.0.to_owned();
+        let Some((tab, Some(device_id))) = self.nav.data::<(Tab, Option<String>)>(id) else {
+            // Make sure AvailableDevices is default
+            self.active_tab = Tab::AvailableDevices;
 
-            if let Some(device_id) = &data.1 {
-                self.selected_device = Some(device_id.clone());
+            return Self::refresh_devices_task();
+        };
 
-                // Show defaults immediately, then load persisted state
-                self.plugin_states
-                    .entry(device_id.clone())
-                    .or_insert_with(Self::default_plugin_map);
+        // if we found a device, switch to Tab::DeviceProfile
+        self.active_tab = tab.to_owned();
+        self.selected_device = Some(device_id.clone());
 
-                return Self::load_plugin_states_task(device_id.clone());
-            }
-        } else {
-            if self.active_tab == Tab::AvailableDevices {
-                return Self::refresh_devices_task();
-            }
-        }
+        // Show defaults immediately, then load persisted state
+        self.plugin_states
+            .entry(device_id.clone())
+            .or_insert_with(Self::default_plugin_map);
 
-        Task::none()
+        return Self::load_plugin_states_task(device_id.clone());
     }
 
     fn update(&mut self, message: Self::Message) -> Task<Action<Self::Message>> {
