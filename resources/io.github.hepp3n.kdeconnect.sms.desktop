@@ -2,6 +2,7 @@
 Name=SMS
 Comment=SMS Messages via KDE Connect
 Comment[cs]=Zprávy SMS přes KDE Connect
+Comment[pl]=SMS przy pomocy KDE Connect
 Icon=io.github.hepp3n.kdeconnect
 Exec=cosmic-ext-connect-sms
 Terminal=false
