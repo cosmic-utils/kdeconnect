@@ -3,6 +3,7 @@ extern crate cosmic_ext_connect_applet;
 
 use cosmic::cosmic_config::{ConfigGet, ConfigSet};
 use cosmic::widget::nav_bar;
+use cosmic::widget::segmented_button::Entity;
 use cosmic::{
     Action, Application, ApplicationExt, Element, Task,
     app::Core,
@@ -68,7 +69,7 @@ fn implemented_plugins() -> &'static [PluginInfo] {
                 id: "battery",
                 name: fl!("plugin-battery-name"),
                 description: fl!("plugin-battery-desc"),
-                icon: "battery-full-symbolic",
+                icon: "battery-symbolic",
             },
             PluginInfo {
                 id: "clipboard",
@@ -154,7 +155,8 @@ fn implemented_plugins() -> &'static [PluginInfo] {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Tab {
     AvailableDevices,
-    DeviceProfile,
+    DeviceProfile(String),
+    Commands,
 }
 
 // ---------------------------------------------------------------------------
@@ -174,6 +176,7 @@ pub enum Message {
     /// Fired by the D-Bus event subscription whenever a device connects or pairs.
     ServiceEvent(kdeconnect_dbus_client::ServiceEvent),
     // Run Command management
+    OpenCommandsTab,
     RunCommandsLoaded(Vec<LocalCommand>),
     NewRunCommandName(String),
     NewRunCommandCommand(String),
@@ -253,7 +256,7 @@ impl Application for SettingsApp {
 
         nav.insert()
             .text(fl!("settings-tab-available"))
-            .data::<(Tab, Option<String>)>((Tab::AvailableDevices, None))
+            .data::<Tab>(Tab::AvailableDevices)
             .icon(widget::icon::from_name("list-add-symbolic"))
             .activate();
 
@@ -313,41 +316,47 @@ impl Application for SettingsApp {
         // Activate the page in the model.
         self.nav.activate(id);
 
-        let Some((tab, Some(device_id))) = self.nav.data::<(Tab, Option<String>)>(id) else {
-            // Make sure AvailableDevices is default
-            self.active_tab = Tab::AvailableDevices;
+        match self.nav.data::<Tab>(id) {
+            Some(tab) => {
+                // if we found a device, switch to Tab::DeviceProfile
+                self.active_tab = tab.to_owned();
 
-            return Self::refresh_devices_task();
-        };
+                return match tab {
+                    Tab::AvailableDevices => {
+                        self.selected_device = None;
+                        Self::refresh_devices_task()
+                    }
+                    Tab::DeviceProfile(id) => {
+                        self.selected_device = Some(id.to_string());
 
-        // if we found a device, switch to Tab::DeviceProfile
-        self.active_tab = tab.to_owned();
-        self.selected_device = Some(device_id.clone());
+                        // Show defaults immediately, then load persisted state
+                        self.plugin_states
+                            .entry(id.clone())
+                            .or_insert_with(Self::default_plugin_map);
 
-        // Show defaults immediately, then load persisted state
-        self.plugin_states
-            .entry(device_id.clone())
-            .or_insert_with(Self::default_plugin_map);
+                        Self::load_plugin_states_task(id.clone())
+                    }
+                    _ => Task::none(),
+                };
+            }
 
-        return Self::load_plugin_states_task(device_id.clone());
+            None => {
+                // Make sure AvailableDevices is def
+                self.active_tab = Tab::AvailableDevices;
+                self.selected_device = None;
+
+                Self::refresh_devices_task()
+            }
+        }
     }
 
     fn update(&mut self, message: Self::Message) -> Task<Action<Self::Message>> {
         match message {
             Message::DevicesLoaded(devices) => {
-                // Rebuild nav-bar model
-                self.nav.clear();
-
-                self.nav
-                    .insert()
-                    .text(fl!("settings-tab-available"))
-                    .data::<(Tab, Option<String>)>((Tab::AvailableDevices, None))
-                    .icon(widget::icon::from_name("list-add-symbolic"))
-                    .activate();
-
                 if let Some(sel) = self.selected_device.clone() {
                     // Clear selection if the device is gone or no longer paired.
                     let still_paired = devices.iter().any(|d| d.id == sel && d.is_paired);
+
                     if !still_paired {
                         self.plugin_states.remove(&sel);
                         self.selected_device = None;
@@ -358,6 +367,7 @@ impl Application for SettingsApp {
                     self.selected_device =
                         devices.iter().find(|d| d.is_paired).map(|d| d.id.clone());
                 }
+
                 for d in &devices {
                     if d.is_paired {
                         self.pairing_in_progress.remove(&d.id);
@@ -366,13 +376,30 @@ impl Application for SettingsApp {
 
                 self.devices = devices;
 
+                let nav_entities: Vec<Entity> = self.nav.iter().map(|e| e).collect();
+
+                for entity in nav_entities {
+                    match self.nav.data::<Tab>(entity.clone()) {
+                        Some(tab) => {
+                            match tab {
+                                Tab::DeviceProfile(_) => self.nav.remove(entity.clone()),
+                                _ => {}
+                            };
+                        }
+                        None => {
+                            continue;
+                        }
+                    };
+                }
+
                 for d in &self.devices {
-                    self.nav
-                        .insert()
-                        .text(d.name.to_string())
-                        .data::<(Tab, Option<String>)>((Tab::DeviceProfile, Some(d.id.clone())))
-                        .divider_above(true)
-                        .icon(widget::icon::from_name("smartphone-symbolic"));
+                    if d.is_paired && d.is_reachable {
+                        self.nav
+                            .insert()
+                            .icon(widget::icon::from_name("smartphone-symbolic"))
+                            .text(d.name.clone())
+                            .data::<Tab>(Tab::DeviceProfile(d.id.clone()));
+                    }
                 }
             }
 
@@ -452,6 +479,9 @@ impl Application for SettingsApp {
                     return Self::refresh_devices_task();
                 }
             }
+            Message::OpenCommandsTab => {
+                self.active_tab = Tab::Commands;
+            }
             Message::RunCommandsLoaded(cmds) => {
                 self.run_commands = cmds;
             }
@@ -499,7 +529,8 @@ impl Application for SettingsApp {
         let spacing = cosmic::theme::active().cosmic().spacing;
 
         let content: Element<'_, Message> = match &self.active_tab {
-            Tab::DeviceProfile => self.view_plugin_panel(&spacing),
+            Tab::DeviceProfile(_) => self.view_plugin_panel(&spacing),
+            Tab::Commands => self.view_run_commands_section(&spacing),
             Tab::AvailableDevices => self.view_available_devices(&spacing),
         };
 
@@ -524,22 +555,128 @@ impl SettingsApp {
         if let Some(ref device_id) = self.selected_device {
             if let Some(device) = self.devices.iter().find(|d| &d.id == device_id) {
                 let unpair_id = device_id.clone();
-                col = col.push(
-                    widget::Row::new()
-                        .spacing(spacing.space_s)
-                        .align_y(Alignment::Center)
-                        .push(widget::icon::from_name(device.device_icon()).size(20))
-                        .push(
-                            widget::text(&device.name)
-                                .size(15)
-                                .font(cosmic::font::bold())
-                                .width(Length::Fill),
+                let paired = device.is_paired;
+
+                let mut device_row = widget::Row::new();
+
+                let phone_icon = widget::icon::from_name("smartphone-symbolic").size(42);
+
+                device_row = device_row.push(phone_icon);
+
+                let mut name_col = widget::Column::new()
+                    .spacing(spacing.space_s)
+                    .padding(spacing.space_xxs)
+                    .push(
+                        widget::text(&device.name)
+                            .size(15)
+                            .font(cosmic::font::bold())
+                            .width(Length::Fill),
+                    );
+
+                let mut under_row = widget::Row::new().spacing(spacing.space_xs);
+
+                if let Some(level) = device.battery_level {
+                    under_row = under_row.push(
+                        widget::Row::new()
+                            .spacing(8)
+                            .align_y(Alignment::Center)
+                            .push(widget::icon::from_name(device.battery_icon()).size(16))
+                            .push(widget::text(format!("{}%", level)).size(11)),
+                    );
+                }
+
+                if let Some(signal_icon) = device.signal_icon() {
+                    under_row = under_row.push(widget::icon::from_name(signal_icon).size(16));
+                }
+
+                name_col = name_col.push(under_row);
+
+                device_row = device_row.push(name_col).align_y(Alignment::Center);
+
+                if paired {
+                    device_row = device_row.push(
+                        widget::button::destructive(fl!("paired-devices-unpair"))
+                            .on_press(Message::UnpairDevice(unpair_id)),
+                    );
+                }
+
+                col = col.push(device_row);
+
+                col = col.push(widget::divider::horizontal::default());
+
+                if self.selected_device.is_none() {
+                    col = col.push(
+                        widget::container(widget::text(fl!("paired-plugins-hint")).size(14))
+                            .padding(spacing.space_l),
+                    );
+                    return widget::scrollable(col).height(Length::Fill).into();
+                }
+
+                if paired {
+                    let mut plugins_list = widget::list_column();
+                    let plugin_item_row = |icon: &str,
+                                           plugin: String,
+                                           plugin_desc: String,
+                                           plugin_enabled: bool,
+                                           plugin_id: String|
+                     -> Element<'_, Message> {
+                        widget::settings::item_row(vec![
+                            widget::icon::from_name(icon).size(24).into(),
+                            widget::Column::new()
+                                .push(
+                                    widget::text::caption_heading(plugin)
+                                        .size(15)
+                                        .width(Length::Fill),
+                                )
+                                .push(widget::text::caption(plugin_desc).width(Length::Fill))
+                                .spacing(spacing.space_xxs)
+                                .into(),
+                            widget::toggler(plugin_enabled)
+                                .on_toggle(move |f| Message::TogglePlugin(plugin_id.clone(), f))
+                                .into(),
+                        ])
+                        .into()
+                    };
+
+                    if self.plugin_enabled("runcommand") {
+                        plugins_list = plugins_list.add(
+                            widget::list_column::button(
+                                widget::row(vec![
+                                    widget::icon::from_name("utilities-terminal-symbolic")
+                                        .size(24)
+                                        .into(),
+                                    widget::text::caption_heading(fl!(
+                                        "run-commands-manage-header"
+                                    ))
+                                    .size(14)
+                                    .width(Length::Fill)
+                                    .into(),
+                                    widget::icon::from_name("go-next-symbolic")
+                                        .size(24)
+                                        .icon()
+                                        .into(),
+                                ])
+                                .spacing(spacing.space_xs)
+                                .align_y(Alignment::Center),
+                            )
+                            .on_press(Message::OpenCommandsTab),
                         )
-                        .push(
-                            widget::button::destructive(fl!("paired-devices-unpair"))
-                                .on_press(Message::UnpairDevice(unpair_id)),
-                        ),
-                );
+                    };
+
+                    for plugin in implemented_plugins() {
+                        let enabled = self.plugin_enabled(plugin.id);
+                        let plugin_id = plugin.id.to_string();
+
+                        plugins_list = plugins_list.add(plugin_item_row(
+                            plugin.icon,
+                            plugin.name.clone(),
+                            plugin.description.clone(),
+                            enabled,
+                            plugin_id,
+                        ));
+                    }
+                    col = col.push(plugins_list);
+                }
             }
         } else {
             col = col.push(
@@ -547,58 +684,6 @@ impl SettingsApp {
                     .size(15)
                     .font(cosmic::font::bold()),
             );
-        }
-
-        col = col.push(widget::divider::horizontal::default());
-
-        if self.selected_device.is_none() {
-            col = col.push(
-                widget::container(widget::text(fl!("paired-plugins-hint")).size(14))
-                    .padding(spacing.space_l),
-            );
-            return widget::scrollable(col).height(Length::Fill).into();
-        }
-
-        for plugin in implemented_plugins() {
-            let enabled = self.plugin_enabled(plugin.id);
-            let plugin_id = plugin.id.to_string();
-            let is_runcommand = plugin.id == "runcommand";
-
-            let row = widget::Row::new()
-                .spacing(spacing.space_m)
-                .align_y(Alignment::Center)
-                .push(
-                    widget::container(widget::icon::from_name(plugin.icon).size(24))
-                        .width(Length::Fixed(40.0))
-                        .align_x(Alignment::Center),
-                )
-                .push(
-                    widget::Column::new()
-                        .spacing(2)
-                        .push(
-                            widget::text(plugin.name.as_str())
-                                .size(14)
-                                .font(cosmic::font::bold()),
-                        )
-                        .push(widget::text(plugin.description.as_str()).size(12))
-                        .width(Length::Fill),
-                )
-                .push(
-                    widget::toggler(enabled)
-                        .on_toggle(move |f| Message::TogglePlugin(plugin_id.clone(), f)),
-                );
-
-            col = col.push(
-                widget::container(row)
-                    .padding([spacing.space_s, spacing.space_m])
-                    .class(cosmic::theme::Container::Card)
-                    .width(Length::Fill),
-            );
-
-            // Show command management inline below the runcommand toggle
-            if is_runcommand && enabled {
-                col = col.push(self.view_run_commands_section(spacing));
-            }
         }
 
         widget::scrollable(col).height(Length::Fill).into()
