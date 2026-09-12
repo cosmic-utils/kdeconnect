@@ -691,7 +691,7 @@ impl SettingsApp {
             |icon: &str, action: String, msg: Message| -> Element<'a, Message> {
                 widget::button::custom(
                     widget::row(vec![
-                        widget::icon::from_name(icon).size(24).icon().into(),
+                        widget::icon::from_name(icon).icon().into(),
                         widget::text(action).into(),
                     ])
                     .align_y(Alignment::Center)
@@ -865,69 +865,45 @@ impl SettingsApp {
                 }
 
                 if paired {
-                    let mut plugins_list = widget::list_column();
-                    let plugin_item_row = |icon: &str,
-                                           plugin: String,
-                                           plugin_desc: String,
-                                           plugin_enabled: bool,
-                                           plugin_id: String|
-                     -> Element<'_, Message> {
-                        widget::settings::item_row(vec![
-                            widget::icon::from_name(icon).size(24).into(),
-                            widget::Column::new()
-                                .push(
-                                    widget::text::caption_heading(plugin)
-                                        .size(15)
-                                        .width(Length::Fill),
-                                )
-                                .push(widget::text::caption(plugin_desc).width(Length::Fill))
-                                .spacing(spacing.space_xxs)
-                                .into(),
-                            widget::toggler(plugin_enabled)
-                                .on_toggle(move |f| Message::TogglePlugin(plugin_id.clone(), f))
-                                .into(),
-                        ])
-                        .into()
-                    };
-
                     if self.plugin_enabled("runcommand") {
-                        plugins_list = plugins_list.add(
-                            widget::list_column::button(
-                                widget::row(vec![
-                                    widget::icon::from_name("utilities-terminal-symbolic")
-                                        .size(24)
+                        col = col.push(
+                            widget::list_column().add(
+                                widget::list_column::button(
+                                    widget::row(vec![
+                                        widget::icon::from_name("utilities-terminal-symbolic")
+                                            .size(24)
+                                            .into(),
+                                        widget::text::caption_heading(fl!(
+                                            "run-commands-manage-header"
+                                        ))
+                                        .size(15)
+                                        .width(Length::Fill)
                                         .into(),
-                                    widget::text::caption_heading(fl!(
-                                        "run-commands-manage-header"
-                                    ))
-                                    .size(14)
-                                    .width(Length::Fill)
-                                    .into(),
-                                    widget::icon::from_name("go-next-symbolic")
-                                        .size(24)
-                                        .icon()
-                                        .into(),
-                                ])
-                                .spacing(spacing.space_xs)
-                                .align_y(Alignment::Center),
-                            )
-                            .on_press(Message::OpenCommandsTab),
-                        )
+                                        widget::icon::from_name("go-next-symbolic").icon().into(),
+                                    ])
+                                    .spacing(spacing.space_xxs)
+                                    .align_y(Alignment::Center),
+                                )
+                                .on_press(Message::OpenCommandsTab),
+                            ),
+                        );
                     };
 
                     for plugin in implemented_plugins() {
                         let enabled = self.plugin_enabled(plugin.id);
                         let plugin_id = plugin.id.to_string();
 
-                        plugins_list = plugins_list.add(plugin_item_row(
-                            plugin.icon,
-                            plugin.name.clone(),
-                            plugin.description.clone(),
-                            enabled,
-                            plugin_id,
-                        ));
+                        col = col.push(
+                            widget::settings::section().add(
+                                widget::settings::item::builder(&plugin.name)
+                                    .description(&plugin.description)
+                                    .icon(widget::icon::from_name(plugin.icon).icon().size(24))
+                                    .toggler(enabled, move |enabled| {
+                                        Message::TogglePlugin(plugin_id.clone(), enabled)
+                                    }),
+                            ),
+                        );
                     }
-                    col = col.push(plugins_list);
                 }
             }
         } else {
@@ -1066,8 +1042,12 @@ impl SettingsApp {
 
             let cmd_col = widget::Column::new()
                 .width(Length::Fill)
-                .push(widget::text(name).size(13).font(cosmic::font::bold()))
-                .push(widget::text(command).size(11));
+                .push(
+                    widget::text::caption_heading(name)
+                        .size(15)
+                        .font(cosmic::font::bold()),
+                )
+                .push(widget::text::caption(command));
 
             section = section.add(widget::settings::item_row(vec![
                 cmd_col.into(),
