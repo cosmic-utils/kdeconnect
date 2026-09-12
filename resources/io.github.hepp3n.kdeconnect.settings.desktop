@@ -1,8 +1,10 @@
 [Desktop Entry]
 Name=KDE Connect Settings
 Name[cs]=Nastavení KDE Connect
+Name[pl]=Ustawienia KDE Connect
 Comment=KDE Connect Settings for COSMIC Desktop
 Comment[cs]=Nastavení KDE Connect pro prostředí COSMIC
+Comment[pl]=Ustawienia KDE Connect dla środowiska COSMIC
 Icon=io.github.hepp3n.kdeconnect
 Exec=cosmic-ext-connect-settings
 Terminal=false
@@ -12,3 +14,4 @@ StartupWMClass=io.github.hepp3n.kdeconnect.settings
 Categories=Network;Settings;
 Keywords=KDE Connect;Settings;COSMIC;
 Keywords[cs]=KDE Connect;Nastavení;COSMIC;
+Keywords[pl]=KDE Connect;Ustawienia;COSMIC;
