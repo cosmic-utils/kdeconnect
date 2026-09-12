@@ -1,6 +1,7 @@
 [Desktop Entry]
 Name=KDE Connect Service (Background)
 Name[cs]=Služba KDE Connect (v pozadí)
+Name[pl]=Usługi KDE Connect (w tle)
 Exec=kdeconnect-service
 Terminal=false
 Type=Application
