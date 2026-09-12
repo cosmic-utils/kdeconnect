@@ -2,8 +2,11 @@
 extern crate cosmic_ext_connect_applet;
 
 use cosmic::cosmic_config::{ConfigGet, ConfigSet};
+use cosmic::iced::core::text::Wrapping;
+use cosmic::theme;
 use cosmic::widget::nav_bar;
 use cosmic::widget::segmented_button::Entity;
+use cosmic::widget::space::horizontal;
 use cosmic::{
     Action, Application, ApplicationExt, Element, Task,
     app::Core,
@@ -157,6 +160,7 @@ pub enum Tab {
     AvailableDevices,
     DeviceProfile(String),
     Commands,
+    AddCommand,
 }
 
 // ---------------------------------------------------------------------------
@@ -176,7 +180,9 @@ pub enum Message {
     /// Fired by the D-Bus event subscription whenever a device connects or pairs.
     ServiceEvent(kdeconnect_dbus_client::ServiceEvent),
     // Run Command management
+    OpenDeviceProfile,
     OpenCommandsTab,
+    OpenCommandAddTab,
     RunCommandsLoaded(Vec<LocalCommand>),
     NewRunCommandName(String),
     NewRunCommandCommand(String),
@@ -479,8 +485,16 @@ impl Application for SettingsApp {
                     return Self::refresh_devices_task();
                 }
             }
+            Message::OpenDeviceProfile => {
+                if let Some(ref id) = self.selected_device {
+                    self.active_tab = Tab::DeviceProfile(id.clone());
+                }
+            }
             Message::OpenCommandsTab => {
                 self.active_tab = Tab::Commands;
+            }
+            Message::OpenCommandAddTab => {
+                self.active_tab = Tab::AddCommand;
             }
             Message::RunCommandsLoaded(cmds) => {
                 self.run_commands = cmds;
@@ -503,6 +517,9 @@ impl Application for SettingsApp {
                     self.new_cmd_name.clear();
                     self.new_cmd_command.clear();
                     save_run_commands(&self.run_commands);
+
+                    self.active_tab = Tab::Commands;
+
                     if let Some(device_id) = self.selected_device.clone() {
                         return Task::perform(
                             async move { backend::push_local_commands(device_id).await },
@@ -531,6 +548,7 @@ impl Application for SettingsApp {
         let content: Element<'_, Message> = match &self.active_tab {
             Tab::DeviceProfile(_) => self.view_plugin_panel(&spacing),
             Tab::Commands => self.view_run_commands_section(&spacing),
+            Tab::AddCommand => self.view_add_commands_section(&spacing),
             Tab::AvailableDevices => self.view_available_devices(&spacing),
         };
 
@@ -543,13 +561,94 @@ impl Application for SettingsApp {
 // ---------------------------------------------------------------------------
 
 impl SettingsApp {
+    fn view_plugin_panel_quick_actions<'a>(
+        &'a self,
+        device: &Device,
+        spacing: &cosmic::cosmic_theme::Spacing,
+    ) -> Element<'a, Message> {
+        let quick_action_button =
+            |icon: &str, action: String, msg: Message| -> Element<'a, Message> {
+                widget::button::custom(
+                    widget::row(vec![
+                        widget::icon::from_name(icon).size(24).icon().into(),
+                        widget::text(action).into(),
+                    ])
+                    .align_y(Alignment::Center)
+                    .spacing(spacing.space_xxs)
+                    .padding([spacing.space_xxxs, spacing.space_xs]),
+                )
+                .on_press(msg)
+                .class(theme::Button::Suggested)
+                .into()
+            };
+
+        let mut buttons: Vec<Element<'a, Message>> = vec![];
+        // ping
+        if self.plugin_enabled("ping") {
+            buttons.push(quick_action_button(
+                "notification-new-symbolic",
+                fl!("quick-actions-ping"),
+                Message::Refresh,
+            ));
+        };
+        // find phone
+        if self.plugin_enabled("findmyphone") {
+            buttons.push(quick_action_button(
+                "phone-symbolic",
+                fl!("quick-actions-find-phone"),
+                Message::Refresh,
+            ))
+        };
+        // share clipboard
+        if self.plugin_enabled("clipboard") {
+            buttons.push(quick_action_button(
+                "edit-paste-symbolic",
+                fl!("quick-actions-share-clipboard"),
+                Message::Refresh,
+            ))
+        };
+        // sms window
+        if self.plugin_enabled("sms") {
+            buttons.push(quick_action_button(
+                "mail-message-new-symbolic",
+                fl!("quick-actions-sms"),
+                Message::Refresh,
+            ))
+        };
+        // send file
+        if self.plugin_enabled("share") {
+            buttons.push(quick_action_button(
+                "document-send-symbolic",
+                fl!("quick-actions-send-file"),
+                Message::Refresh,
+            ))
+        };
+        // browse device
+        if self.plugin_enabled("share") {
+            buttons.push(quick_action_button(
+                if !(device.is_mounted) {
+                    "folder-symbolic"
+                } else {
+                    "folder-open-symbolic"
+                },
+                fl!("plugin-ping-name"),
+                Message::Refresh,
+            ));
+        };
+
+        widget::flex_row::flex_row(buttons)
+            .spacing(spacing.space_xxs)
+            .width(Length::Fill)
+            .into()
+    }
+
     fn view_plugin_panel<'a>(
         &'a self,
         spacing: &cosmic::cosmic_theme::Spacing,
     ) -> Element<'a, Message> {
         let mut col = widget::Column::new()
             .spacing(spacing.space_s)
-            .padding(spacing.space_m)
+            .padding(spacing.space_s)
             .width(Length::Fill);
 
         if let Some(ref device_id) = self.selected_device {
@@ -563,15 +662,12 @@ impl SettingsApp {
 
                 device_row = device_row.push(phone_icon);
 
-                let mut name_col = widget::Column::new()
-                    .spacing(spacing.space_s)
-                    .padding(spacing.space_xxs)
-                    .push(
-                        widget::text(&device.name)
-                            .size(15)
-                            .font(cosmic::font::bold())
-                            .width(Length::Fill),
-                    );
+                let mut name_col = widget::Column::new().spacing(spacing.space_s).push(
+                    widget::text(&device.name)
+                        .size(15)
+                        .font(cosmic::font::bold())
+                        .width(Length::Fill),
+                );
 
                 let mut under_row = widget::Row::new().spacing(spacing.space_xs);
 
@@ -601,7 +697,7 @@ impl SettingsApp {
                 }
 
                 col = col.push(device_row);
-
+                col = col.push(self.view_plugin_panel_quick_actions(&device, spacing));
                 col = col.push(widget::divider::horizontal::default());
 
                 if self.selected_device.is_none() {
@@ -701,7 +797,7 @@ impl SettingsApp {
 
         let mut col = widget::Column::new()
             .spacing(spacing.space_s)
-            .padding(spacing.space_m)
+            .padding(spacing.space_s)
             .width(Length::Fill);
 
         col = col.push(
@@ -786,68 +882,103 @@ impl SettingsApp {
         &'a self,
         spacing: &cosmic::cosmic_theme::Spacing,
     ) -> Element<'a, Message> {
+        let back_button = widget::button::custom(widget::settings::item_row(vec![
+            widget::icon::from_name("go-previous-symbolic")
+                .size(16)
+                .icon()
+                .into(),
+            widget::text::body("Back")
+                .width(Length::Fill)
+                .wrapping(Wrapping::Word)
+                .into(),
+        ]))
+        .on_press(Message::OpenDeviceProfile)
+        .class(theme::Button::Link);
+
         let mut col = widget::Column::new()
             .spacing(spacing.space_xs)
-            .padding([spacing.space_xs, spacing.space_m]);
+            .padding(spacing.space_s)
+            .push(back_button);
 
-        col = col.push(
-            widget::text(fl!("run-commands-manage-header"))
-                .size(13)
-                .font(cosmic::font::bold()),
-        );
+        let mut section = widget::settings::section().title(fl!("run-commands-manage-header"));
 
         // Existing commands
         for cmd in &self.run_commands {
             let name = cmd["name"].as_str().unwrap_or("");
             let command = cmd["command"].as_str().unwrap_or("");
             let delete_id = cmd["id"].as_str().unwrap_or("").to_string();
-            let row = widget::Row::new()
-                .spacing(spacing.space_s)
-                .align_y(Alignment::Center)
-                .push(
-                    widget::Column::new()
-                        .push(widget::text(name).size(13).font(cosmic::font::bold()))
-                        .push(widget::text(command).size(11))
-                        .width(Length::Fill),
-                )
-                .push(
-                    widget::button::destructive(fl!("run-commands-delete"))
-                        .on_press(Message::DeleteRunCommand(delete_id)),
-                );
-            col = col.push(
-                widget::container(row)
-                    .padding([spacing.space_xs, spacing.space_s])
-                    .class(cosmic::theme::Container::Background)
-                    .width(Length::Fill),
-            );
+
+            let cmd_col = widget::Column::new()
+                .width(Length::Fill)
+                .push(widget::text(name).size(13).font(cosmic::font::bold()))
+                .push(widget::text(command).size(11));
+
+            section = section.add(widget::settings::item_row(vec![
+                cmd_col.into(),
+                widget::button::icon(widget::icon::from_name("user-trash-symbolic").size(24))
+                    .on_press(Message::DeleteRunCommand(delete_id))
+                    .into(),
+            ]));
         }
 
-        // Add new command
-        col = col.push(
-            widget::text(fl!("run-commands-add-header"))
-                .size(12)
-                .font(cosmic::font::bold()),
-        );
-        col = col.push(
-            widget::text_input(fl!("run-commands-name-placeholder"), &self.new_cmd_name)
-                .on_input(Message::NewRunCommandName)
-                .width(Length::Fill),
-        );
-        col = col.push(
-            widget::text_input(
-                fl!("run-commands-command-placeholder"),
-                &self.new_cmd_command,
-            )
-            .on_input(Message::NewRunCommandCommand)
-            .width(Length::Fill),
-        );
-        col = col.push(
+        col = col.push(section).push(widget::settings::item_row(vec![
+            horizontal().into(),
             widget::button::suggested(fl!("run-commands-add-button"))
-                .on_press(Message::AddRunCommand),
-        );
+                .on_press(Message::OpenCommandAddTab)
+                .into(),
+        ]));
 
         widget::container(col)
-            .padding([spacing.space_xs, spacing.space_m])
+            .class(cosmic::theme::Container::Background)
+            .width(Length::Fill)
+            .into()
+    }
+
+    fn view_add_commands_section<'a>(
+        &'a self,
+        spacing: &cosmic::cosmic_theme::Spacing,
+    ) -> Element<'a, Message> {
+        let back_button = widget::button::custom(widget::settings::item_row(vec![
+            widget::icon::from_name("go-previous-symbolic")
+                .size(16)
+                .icon()
+                .into(),
+            widget::text::body("Back")
+                .width(Length::Fill)
+                .wrapping(Wrapping::Word)
+                .into(),
+        ]))
+        .on_press(Message::OpenCommandsTab)
+        .class(theme::Button::Link);
+
+        let mut col = widget::Column::new()
+            .spacing(spacing.space_xs)
+            .padding(spacing.space_s)
+            .push(back_button);
+
+        let section = widget::settings::section()
+            .title(fl!("run-commands-manage-header"))
+            .add(
+                widget::text_input(fl!("run-commands-name-placeholder"), &self.new_cmd_name)
+                    .on_input(Message::NewRunCommandName)
+                    .width(Length::Fill),
+            )
+            .add(
+                widget::text_input(
+                    fl!("run-commands-command-placeholder"),
+                    &self.new_cmd_command,
+                )
+                .on_input(Message::NewRunCommandCommand)
+                .width(Length::Fill),
+            )
+            .add(
+                widget::button::suggested(fl!("run-commands-add-button"))
+                    .on_press(Message::AddRunCommand),
+            );
+
+        col = col.push(section);
+
+        widget::container(col)
             .class(cosmic::theme::Container::Background)
             .width(Length::Fill)
             .into()
