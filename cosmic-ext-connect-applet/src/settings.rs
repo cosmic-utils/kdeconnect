@@ -166,6 +166,16 @@ pub enum Tab {
 // ---------------------------------------------------------------------------
 // Messages
 // ---------------------------------------------------------------------------
+#[derive(Debug, Clone)]
+pub enum QuickMessages {
+    Ping(String),
+    FindMyPhone(String),
+    ShareCliphboard(String),
+    SMS(String),
+    SendFiles(String),
+    BrowseDevice(String),
+    UmountDevice(String),
+}
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -179,6 +189,9 @@ pub enum Message {
     UnpairDevice(String),
     /// Fired by the D-Bus event subscription whenever a device connects or pairs.
     ServiceEvent(kdeconnect_dbus_client::ServiceEvent),
+    // Run Quick Action
+    RunQuickAction(QuickMessages),
+    BrowseDeviceFailed(String),
     // Run Command management
     OpenDeviceProfile,
     OpenCommandsTab,
@@ -188,6 +201,8 @@ pub enum Message {
     NewRunCommandCommand(String),
     AddRunCommand,
     DeleteRunCommand(String),
+    // DismissBanner by clearing field
+    DismissError,
 }
 
 // ---------------------------------------------------------------------------
@@ -207,6 +222,8 @@ pub struct SettingsApp {
     run_commands: Vec<LocalCommand>,
     new_cmd_name: String,
     new_cmd_command: String,
+    // banner message
+    message_banner: Option<String>,
 }
 
 impl SettingsApp {
@@ -277,6 +294,7 @@ impl Application for SettingsApp {
             run_commands: Vec::new(),
             new_cmd_name: String::new(),
             new_cmd_command: String::new(),
+            message_banner: None,
         };
 
         app.core.window.header_title = fl!("settings-title").into();
@@ -496,6 +514,109 @@ impl Application for SettingsApp {
             Message::OpenCommandAddTab => {
                 self.active_tab = Tab::AddCommand;
             }
+            Message::RunQuickAction(action) => match action {
+                QuickMessages::Ping(id) => {
+                    let id = id.clone();
+                    return Task::perform(
+                        async move {
+                            backend::ping_device(id).await.ok();
+                        },
+                        |_| cosmic::action::app(Message::Refresh),
+                    );
+                }
+                QuickMessages::FindMyPhone(id) => {
+                    let id = id.clone();
+                    return Task::perform(
+                        async move {
+                            backend::ring_device(id).await.ok();
+                        },
+                        |_| cosmic::action::app(Message::Refresh),
+                    );
+                }
+                QuickMessages::ShareCliphboard(id) => {
+                    let id = id.clone();
+                    return Task::perform(
+                        async move {
+                            backend::share_clipboard(id)
+                                .await
+                                .map_err(|e| e.to_string())
+                        },
+                        move |_| cosmic::action::app(Message::Refresh),
+                    );
+                }
+                QuickMessages::SMS(id) => {
+                    let id = id.clone();
+                    let device_name: Option<String> = self
+                        .devices
+                        .iter()
+                        .find(|d| d.id == id)
+                        .and_then(|d| Some(d.name.clone()));
+
+                    if let Some(device_name) = device_name {
+                        // Spawn in a thread so the process::Command doesn't block the executor
+                        std::thread::spawn(move || {
+                            match std::process::Command::new("cosmic-ext-connect-sms")
+                                .arg(&id)
+                                .arg(&device_name)
+                                .spawn()
+                            {
+                                Ok(_) => tracing::info!("cosmic-ext-connect-sms launched"),
+                                Err(e) => tracing::error!(
+                                    "Failed to launch cosmic-ext-connect-sms: {:?}",
+                                    e
+                                ),
+                            }
+                        });
+                    }
+                }
+                QuickMessages::SendFiles(id) => {
+                    let id = id.clone();
+                    return Task::perform(
+                        async move {
+                            let files = cosmic_ext_connect_applet::portal::pick_files(
+                                &fl!("file-picker-title"),
+                                true,
+                                None,
+                            )
+                            .await;
+                            if !files.is_empty() {
+                                backend::send_files(id, files).await.ok();
+                            }
+                        },
+                        |_| cosmic::action::app(Message::Refresh),
+                    );
+                }
+                QuickMessages::BrowseDevice(id) => {
+                    let id = id.clone();
+                    return Task::perform(
+                        async move { backend::browse_device_filesystem(id).await },
+                        |result| match result {
+                            Ok(()) => cosmic::action::app(Message::Refresh),
+                            Err(e) => {
+                                cosmic::action::app(Message::BrowseDeviceFailed(e.to_string()))
+                            }
+                        },
+                    );
+                }
+                QuickMessages::UmountDevice(id) => {
+                    let id = id.clone();
+                    return Task::perform(
+                        async move { backend::browse_device_filesystem(id).await },
+                        |result| match result {
+                            Ok(()) => cosmic::action::app(Message::Refresh),
+                            Err(e) => {
+                                cosmic::action::app(Message::BrowseDeviceFailed(e.to_string()))
+                            }
+                        },
+                    );
+                }
+            },
+            Message::BrowseDeviceFailed(failure) => {
+                self.message_banner = Some(failure);
+            }
+            Message::DismissError => {
+                self.message_banner = None;
+            }
             Message::RunCommandsLoaded(cmds) => {
                 self.run_commands = cmds;
             }
@@ -588,7 +709,7 @@ impl SettingsApp {
             buttons.push(quick_action_button(
                 "notification-new-symbolic",
                 fl!("quick-actions-ping"),
-                Message::Refresh,
+                Message::RunQuickAction(QuickMessages::Ping(device.id.to_string())),
             ));
         };
         // find phone
@@ -596,7 +717,7 @@ impl SettingsApp {
             buttons.push(quick_action_button(
                 "phone-symbolic",
                 fl!("quick-actions-find-phone"),
-                Message::Refresh,
+                Message::RunQuickAction(QuickMessages::FindMyPhone(device.id.to_string())),
             ))
         };
         // share clipboard
@@ -604,7 +725,7 @@ impl SettingsApp {
             buttons.push(quick_action_button(
                 "edit-paste-symbolic",
                 fl!("quick-actions-share-clipboard"),
-                Message::Refresh,
+                Message::RunQuickAction(QuickMessages::ShareCliphboard(device.id.to_string())),
             ))
         };
         // sms window
@@ -612,7 +733,7 @@ impl SettingsApp {
             buttons.push(quick_action_button(
                 "mail-message-new-symbolic",
                 fl!("quick-actions-sms"),
-                Message::Refresh,
+                Message::RunQuickAction(QuickMessages::SMS(device.id.to_string())),
             ))
         };
         // send file
@@ -620,7 +741,7 @@ impl SettingsApp {
             buttons.push(quick_action_button(
                 "document-send-symbolic",
                 fl!("quick-actions-send-file"),
-                Message::Refresh,
+                Message::RunQuickAction(QuickMessages::SendFiles(device.id.to_string())),
             ))
         };
         // browse device
@@ -631,8 +752,12 @@ impl SettingsApp {
                 } else {
                     "folder-open-symbolic"
                 },
-                fl!("plugin-ping-name"),
-                Message::Refresh,
+                fl!("quick-actions-browse-device"),
+                if !(device.is_mounted) {
+                    Message::RunQuickAction(QuickMessages::BrowseDevice(device.id.to_string()))
+                } else {
+                    Message::RunQuickAction(QuickMessages::UmountDevice(device.id.to_string()))
+                },
             ));
         };
 
@@ -697,6 +822,37 @@ impl SettingsApp {
                 }
 
                 col = col.push(device_row);
+
+                // Dismissible error banner — surfaces failures (e.g. browse-device
+                // preflight checks) that used to be silently dropped.
+                if let Some(ref message) = self.message_banner {
+                    col = col.push(
+                        widget::container(
+                            widget::Row::new()
+                                .push(widget::text(message).size(12).width(Length::Fill))
+                                .push(
+                                    widget::button::icon(
+                                        widget::icon::from_name("window-close-symbolic").handle(),
+                                    )
+                                    .on_press(Message::DismissError),
+                                )
+                                .spacing(spacing.space_xs)
+                                .align_y(Alignment::Center),
+                        )
+                        .padding(spacing.space_s)
+                        .style(|_: &cosmic::Theme| cosmic::widget::container::Style {
+                            border: cosmic::iced::Border {
+                                color: cosmic::iced::Color::from_rgb(0.8, 0.2, 0.2),
+                                width: 1.5,
+                                radius: 8.0.into(),
+                            },
+                            ..Default::default()
+                        })
+                        .class(cosmic::theme::Container::Card)
+                        .width(Length::Fill),
+                    );
+                };
+
                 col = col.push(self.view_plugin_panel_quick_actions(&device, spacing));
                 col = col.push(widget::divider::horizontal::default());
 
