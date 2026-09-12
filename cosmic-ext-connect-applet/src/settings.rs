@@ -420,6 +420,7 @@ impl Application for SettingsApp {
                     if d.is_paired && d.is_reachable {
                         self.nav
                             .insert()
+                            .divider_above(true)
                             .icon(widget::icon::from_name("smartphone-symbolic"))
                             .text(d.name.clone())
                             .data::<Tab>(Tab::DeviceProfile(d.id.clone()));
