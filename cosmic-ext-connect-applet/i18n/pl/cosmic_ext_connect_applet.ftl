@@ -31,7 +31,7 @@ quick-actions-unmount-device = Odmontuj urządzenie
 quick-actions-run-commands-header = Uruchom komendy
 
 # Run Command management (settings)
-run-commands-manage-header = Komendy (uruchomione z telefonu)
+run-commands-manage-header = Komendy
 run-commands-add-header = Dodaj nową komende
 run-commands-name-placeholder = Nazwa (np. Wygaszacz ekranu)
 run-commands-command-placeholder = Komendy powłoki (np. loginctl lock-session)
@@ -43,6 +43,7 @@ settings-title = KDE Connect Ustawienia
 settings-tab-paired = Sparowane urządzenia
 settings-tab-available = Dostępne urządzenia
 settings-scan-again = Skanuj ponownie
+settings-device-profile = Profil urządzenia
 
 # Paired devices tab
 paired-devices-header = Sparowane urządzenia

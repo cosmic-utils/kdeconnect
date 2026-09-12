@@ -868,24 +868,15 @@ impl SettingsApp {
                 if paired {
                     if self.plugin_enabled("runcommand") {
                         col = col.push(
-                            widget::list_column().add(
-                                widget::list_column::button(
-                                    widget::row(vec![
-                                        widget::icon::from_name("utilities-terminal-symbolic")
-                                            .size(24)
-                                            .into(),
-                                        widget::text::caption_heading(fl!(
-                                            "run-commands-manage-header"
+                            widget::settings::section().add(
+                                widget::settings::item::builder(fl!("run-commands-manage-header"))
+                                    .icon(widget::icon::from_name("utilities-terminal-symbolic"))
+                                    .control(
+                                        widget::button::icon(widget::icon::from_name(
+                                            "go-next-symbolic",
                                         ))
-                                        .size(15)
-                                        .width(Length::Fill)
-                                        .into(),
-                                        widget::icon::from_name("go-next-symbolic").icon().into(),
-                                    ])
-                                    .spacing(spacing.space_xxs)
-                                    .align_y(Alignment::Center),
-                                )
-                                .on_press(Message::OpenCommandsTab),
+                                        .on_press(Message::OpenCommandsTab),
+                                    ),
                             ),
                         );
                     };
@@ -898,7 +889,7 @@ impl SettingsApp {
                             widget::settings::section().add(
                                 widget::settings::item::builder(&plugin.name)
                                     .description(&plugin.description)
-                                    .icon(widget::icon::from_name(plugin.icon).icon().size(24))
+                                    .icon(widget::icon::from_name(plugin.icon).icon())
                                     .toggler(enabled, move |enabled| {
                                         Message::TogglePlugin(plugin_id.clone(), enabled)
                                     }),
@@ -1015,86 +1006,65 @@ impl SettingsApp {
         &'a self,
         spacing: &cosmic::cosmic_theme::Spacing,
     ) -> Element<'a, Message> {
-        let back_button = widget::button::custom(widget::settings::item_row(vec![
-            widget::icon::from_name("go-previous-symbolic")
-                .size(16)
-                .icon()
-                .into(),
-            widget::text::body("Back")
-                .width(Length::Fill)
-                .wrapping(Wrapping::Word)
-                .into(),
-        ]))
-        .on_press(Message::OpenDeviceProfile)
-        .class(theme::Button::Link);
+        let column = widget::column(vec![
+            previous_button(fl!("settings-device-profile"), Message::OpenDeviceProfile),
+            {
+                let mut section =
+                    widget::settings::section().title(fl!("run-commands-manage-header"));
 
-        let mut col = widget::Column::new()
-            .spacing(spacing.space_xs)
-            .padding(spacing.space_s)
-            .push(back_button);
+                for cmd in &self.run_commands {
+                    let name = cmd["name"].as_str().unwrap_or("");
+                    let command = cmd["command"].as_str().unwrap_or("");
+                    let delete_id = cmd["id"].as_str().unwrap_or("").to_string();
 
-        let mut section = widget::settings::section().title(fl!("run-commands-manage-header"));
+                    let cmd_col = widget::Column::new()
+                        .width(Length::Fill)
+                        .push(
+                            widget::text::caption_heading(name)
+                                .size(15)
+                                .font(cosmic::font::bold()),
+                        )
+                        .push(widget::text::caption(command));
 
-        // Existing commands
-        for cmd in &self.run_commands {
-            let name = cmd["name"].as_str().unwrap_or("");
-            let command = cmd["command"].as_str().unwrap_or("");
-            let delete_id = cmd["id"].as_str().unwrap_or("").to_string();
+                    section = section.add(widget::settings::item_row(vec![
+                        cmd_col.into(),
+                        widget::button::icon(
+                            widget::icon::from_name("user-trash-symbolic").size(24),
+                        )
+                        .on_press(Message::DeleteRunCommand(delete_id))
+                        .into(),
+                    ]));
+                }
 
-            let cmd_col = widget::Column::new()
-                .width(Length::Fill)
-                .push(
-                    widget::text::caption_heading(name)
-                        .size(15)
-                        .font(cosmic::font::bold()),
-                )
-                .push(widget::text::caption(command));
+                section = section.add(widget::settings::item_row(vec![
+                    horizontal().into(),
+                    widget::button::suggested(fl!("run-commands-add-button"))
+                        .on_press(Message::OpenCommandAddTab)
+                        .into(),
+                ]));
 
-            section = section.add(widget::settings::item_row(vec![
-                cmd_col.into(),
-                widget::button::icon(widget::icon::from_name("user-trash-symbolic").size(24))
-                    .on_press(Message::DeleteRunCommand(delete_id))
-                    .into(),
-            ]));
-        }
+                section.into()
+            },
+        ])
+        .padding(spacing.space_s)
+        .spacing(spacing.space_xxs);
 
-        col = col.push(section).push(widget::settings::item_row(vec![
-            horizontal().into(),
-            widget::button::suggested(fl!("run-commands-add-button"))
-                .on_press(Message::OpenCommandAddTab)
-                .into(),
-        ]));
-
-        widget::container(col)
-            .class(cosmic::theme::Container::Background)
-            .width(Length::Fill)
-            .into()
+        widget::scrollable(column).into()
     }
 
     fn view_add_commands_section<'a>(
         &'a self,
         spacing: &cosmic::cosmic_theme::Spacing,
     ) -> Element<'a, Message> {
-        let back_button = widget::button::custom(widget::settings::item_row(vec![
-            widget::icon::from_name("go-previous-symbolic")
-                .size(16)
-                .icon()
-                .into(),
-            widget::text::body("Back")
-                .width(Length::Fill)
-                .wrapping(Wrapping::Word)
-                .into(),
-        ]))
-        .on_press(Message::OpenCommandsTab)
-        .class(theme::Button::Link);
-
         let mut col = widget::Column::new()
             .spacing(spacing.space_xs)
             .padding(spacing.space_s)
-            .push(back_button);
+            .push(previous_button(
+                fl!("run-commands-manage-header"),
+                Message::OpenCommandsTab,
+            ));
 
         let section = widget::settings::section()
-            .title(fl!("run-commands-manage-header"))
             .add(
                 widget::text_input(fl!("run-commands-name-placeholder"), &self.new_cmd_name)
                     .on_input(Message::NewRunCommandName)
@@ -1120,6 +1090,17 @@ impl SettingsApp {
             .width(Length::Fill)
             .into()
     }
+}
+
+fn previous_button<'a>(parent_page: String, on_press: Message) -> Element<'a, Message> {
+    widget::button::icon(widget::icon::from_name("go-previous-symbolic"))
+        .extra_small()
+        .padding(0)
+        .label(parent_page)
+        .spacing(4)
+        .class(widget::button::ButtonClass::Link)
+        .on_press(on_press)
+        .into()
 }
 
 fn main() -> cosmic::iced::Result {
