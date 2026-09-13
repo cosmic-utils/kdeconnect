@@ -2,8 +2,6 @@
 extern crate cosmic_ext_connect_applet;
 
 use cosmic::cosmic_config::{ConfigGet, ConfigSet};
-use cosmic::iced::core::text::Wrapping;
-use cosmic::theme;
 use cosmic::widget::nav_bar;
 use cosmic::widget::segmented_button::Entity;
 use cosmic::widget::space::horizontal;
@@ -13,6 +11,7 @@ use cosmic::{
     iced::{Alignment, Length, Subscription},
     widget,
 };
+use cosmic::{Apply, theme};
 use cosmic_ext_connect_applet::{backend, models::Device};
 use futures::StreamExt as _;
 use std::collections::HashMap;
@@ -871,12 +870,18 @@ impl SettingsApp {
                             widget::settings::section().add(
                                 widget::settings::item::builder(fl!("run-commands-manage-header"))
                                     .icon(widget::icon::from_name("utilities-terminal-symbolic"))
-                                    .control(
-                                        widget::button::icon(widget::icon::from_name(
-                                            "go-next-symbolic",
-                                        ))
-                                        .on_press(Message::OpenCommandsTab),
-                                    ),
+                                    .control(widget::button::icon(widget::icon::from_name(
+                                        "go-next-symbolic",
+                                    )))
+                                    .apply(widget::container)
+                                    .align_x(Alignment::Center)
+                                    .class(theme::Container::List)
+                                    .width(Length::Fill)
+                                    .apply(widget::button::custom)
+                                    .padding(0)
+                                    .class(theme::Button::Transparent)
+                                    .on_press(Message::OpenCommandsTab)
+                                    .width(Length::Fill),
                             ),
                         );
                     };
