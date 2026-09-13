@@ -939,8 +939,7 @@ impl SettingsApp {
                         .spacing(spacing.space_s)
                         .push(widget::icon::from_name("network-offline-symbolic").size(48))
                         .push(
-                            widget::text(fl!("available-devices-none"))
-                                .size(16)
+                            widget::text::title4(fl!("available-devices-none"))
                                 .font(cosmic::font::bold()),
                         )
                         .push(widget::text(fl!("available-devices-none-hint")))
@@ -1084,6 +1083,6 @@ fn previous_button<'a>(parent_page: String, on_press: Message) -> Element<'a, Me
 }
 
 fn main() -> cosmic::iced::Result {
-    let settings = cosmic::app::Settings::default().size(cosmic::iced::Size::new(740.0, 540.0));
+    let settings = cosmic::app::Settings::default().size(cosmic::iced::Size::new(800.0, 600.0));
     cosmic::app::run::<SettingsApp>(settings, ())
 }
