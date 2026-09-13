@@ -787,12 +787,9 @@ impl SettingsApp {
 
                 device_row = device_row.push(phone_icon);
 
-                let mut name_col = widget::Column::new().spacing(spacing.space_s).push(
-                    widget::text(&device.name)
-                        .size(15)
-                        .font(cosmic::font::bold())
-                        .width(Length::Fill),
-                );
+                let mut name_col = widget::Column::new()
+                    .spacing(spacing.space_s)
+                    .push(widget::text::title3(&device.name).width(Length::Fill));
 
                 let mut under_row = widget::Row::new().spacing(spacing.space_xs);
 
@@ -801,13 +798,13 @@ impl SettingsApp {
                         widget::Row::new()
                             .spacing(8)
                             .align_y(Alignment::Center)
-                            .push(widget::icon::from_name(device.battery_icon()).size(16))
-                            .push(widget::text(format!("{}%", level)).size(11)),
+                            .push(widget::icon::from_name(device.battery_icon()))
+                            .push(widget::text(format!("{}%", level))),
                     );
                 }
 
                 if let Some(signal_icon) = device.signal_icon() {
-                    under_row = under_row.push(widget::icon::from_name(signal_icon).size(16));
+                    under_row = under_row.push(widget::icon::from_name(signal_icon));
                 }
 
                 name_col = name_col.push(under_row);
@@ -829,7 +826,7 @@ impl SettingsApp {
                     col = col.push(
                         widget::container(
                             widget::Row::new()
-                                .push(widget::text(message).size(12).width(Length::Fill))
+                                .push(widget::text(message).width(Length::Fill))
                                 .push(
                                     widget::button::icon(
                                         widget::icon::from_name("window-close-symbolic").handle(),
@@ -858,7 +855,7 @@ impl SettingsApp {
 
                 if self.selected_device.is_none() {
                     col = col.push(
-                        widget::container(widget::text(fl!("paired-plugins-hint")).size(14))
+                        widget::container(widget::text(fl!("paired-plugins-hint")))
                             .padding(spacing.space_l),
                     );
                     return widget::scrollable(col).height(Length::Fill).into();
@@ -903,12 +900,6 @@ impl SettingsApp {
                     }
                 }
             }
-        } else {
-            col = col.push(
-                widget::text(fl!("paired-plugins-header"))
-                    .size(15)
-                    .font(cosmic::font::bold()),
-            );
         }
 
         widget::scrollable(col).height(Length::Fill).into()
@@ -933,18 +924,13 @@ impl SettingsApp {
             widget::Row::new()
                 .spacing(spacing.space_s)
                 .align_y(Alignment::Center)
-                .push(
-                    widget::text(fl!("available-devices-header"))
-                        .size(15)
-                        .font(cosmic::font::bold())
-                        .width(Length::Fill),
-                )
+                .push(widget::text::title3(fl!("available-devices-header")).width(Length::Fill))
                 .push(
                     widget::button::standard(fl!("settings-scan-again")).on_press(Message::Refresh),
                 ),
         );
         col = col.push(widget::divider::horizontal::default());
-        col = col.push(widget::text(fl!("available-devices-hint")).size(13));
+        col = col.push(widget::text(fl!("available-devices-hint")));
 
         if available.is_empty() {
             col = col.push(
@@ -957,11 +943,7 @@ impl SettingsApp {
                                 .size(16)
                                 .font(cosmic::font::bold()),
                         )
-                        .push(widget::text(fl!("available-devices-none-hint")).size(13))
-                        .push(
-                            widget::button::standard(fl!("settings-scan-again"))
-                                .on_press(Message::Refresh),
-                        )
+                        .push(widget::text(fl!("available-devices-none-hint")))
                         .align_x(Alignment::Center),
                 )
                 .padding([spacing.space_xl, spacing.space_m])
@@ -976,16 +958,15 @@ impl SettingsApp {
                 let card = widget::Row::new()
                     .spacing(spacing.space_m)
                     .align_y(Alignment::Center)
-                    .push(widget::icon::from_name(device.device_icon()).size(32))
+                    .push(widget::icon::from_name(device.device_icon()).size(42))
                     .push(
                         widget::Column::new()
                             .spacing(2)
                             .push(
-                                widget::text(&device.name)
-                                    .size(14)
+                                widget::text::caption_heading(&device.name)
                                     .font(cosmic::font::bold()),
                             )
-                            .push(widget::text(&device.id).size(11))
+                            .push(widget::text(&device.id))
                             .width(Length::Fill),
                     )
                     .push(if in_progress {
@@ -1024,20 +1005,14 @@ impl SettingsApp {
 
                     let cmd_col = widget::Column::new()
                         .width(Length::Fill)
-                        .push(
-                            widget::text::caption_heading(name)
-                                .size(15)
-                                .font(cosmic::font::bold()),
-                        )
+                        .push(widget::text::caption_heading(name).font(cosmic::font::bold()))
                         .push(widget::text::caption(command));
 
                     section = section.add(widget::settings::item_row(vec![
                         cmd_col.into(),
-                        widget::button::icon(
-                            widget::icon::from_name("user-trash-symbolic").size(24),
-                        )
-                        .on_press(Message::DeleteRunCommand(delete_id))
-                        .into(),
+                        widget::button::icon(widget::icon::from_name("user-trash-symbolic"))
+                            .on_press(Message::DeleteRunCommand(delete_id))
+                            .into(),
                     ]));
                 }
 
