@@ -58,14 +58,7 @@ kdeconnect-dbus-client = { path = "kdeconnect-dbus-client" }
 
 libcosmic = { git = "https://github.com/pop-os/libcosmic", default-features = false, features = [
     "applet",
-    # No "wgpu": like the official cosmic-applets, render with tiny-skia into
-    # shm buffers. The wgpu/Vulkan stack costs ~100 MB of RSS per process and
-    # buys nothing for a 400px popup.
-    "advanced-shaping"
+    "wgpu",
+    "wayland",
+    "winit",
 ] }
-
-[profile.release]
-opt-level = 3
-lto = true
-codegen-units = 1
-strip = true
