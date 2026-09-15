@@ -1,14 +1,15 @@
 use async_stream::stream;
+use cosmic::iced::Length;
 use cosmic::iced::widget::scrollable;
+use cosmic::widget::{nav_bar, segmented_button};
 use cosmic::{
-    Action, Application, ApplicationExt, Element, Task,
-    app::Core,
-    iced::{Length, Subscription},
-    widget,
+    Action, Application, ApplicationExt, Element, Task, app::Core, iced::Subscription, widget,
 };
 use futures::StreamExt;
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
+
+use crate::plugins::sms::actions::SmsTabActive;
 
 use super::actions::SmsMessage;
 use super::avatar::{self, Avatar};
@@ -18,8 +19,16 @@ use super::models::{Conversation, Message, MessageAttachment, ProtocolEvent};
 use super::utils;
 use super::views;
 
+#[derive(Clone, Debug)]
+pub struct ConversationData {
+    key: String,
+    contact: String,
+}
+
 pub struct SmsWindow {
     core: Core,
+    pub nav_model: nav_bar::Model,
+    pub active_tab: SmsTabActive,
     pub device_id: String,
     #[allow(dead_code)]
     pub device_name: String,
@@ -33,8 +42,11 @@ pub struct SmsWindow {
     pub selected_thread: Option<String>,
     pub contact_idx: Option<usize>,
     pub messages: Vec<Message>,
+    pub filtered_messages: Vec<Message>,
     pub message_input: String,
     pub search_query: String,
+    pub search_field_active: bool,
+    pub conversation_query: String,
     pub show_new_chat_dialog: bool,
     pub new_chat_phone_input: String,
     pub show_emoji_picker: bool,
@@ -75,6 +87,8 @@ impl Application for SmsWindow {
 
         let mut app = Self {
             core,
+            nav_model: segmented_button::ModelBuilder::default().build(),
+            active_tab: SmsTabActive::Contacts,
             device_id: device_id.clone(),
             device_name: device_name.clone(),
             conversations: Vec::new(),
@@ -83,8 +97,11 @@ impl Application for SmsWindow {
             selected_thread: None,
             contact_idx: Some(0),
             messages: Vec::new(),
+            filtered_messages: Vec::new(),
             message_input: String::new(),
             search_query: String::new(),
+            search_field_active: false,
+            conversation_query: String::new(),
             show_new_chat_dialog: false,
             new_chat_phone_input: String::new(),
             show_emoji_picker: false,
@@ -101,6 +118,33 @@ impl Application for SmsWindow {
         let title_task = app.set_window_title(title, app.core.main_window_id().unwrap());
 
         (app, title_task)
+    }
+
+    fn nav_model(&self) -> Option<&nav_bar::Model> {
+        Some(&self.nav_model)
+    }
+
+    fn on_nav_select(&mut self, id: nav_bar::Id) -> cosmic::app::Task<Self::Message> {
+        self.nav_model.activate(id);
+
+        let _ = self.nav_model.data::<SmsTabActive>(id).map(|l| {
+            self.active_tab = l.clone();
+        });
+
+        if let Some(data) = self.nav_model.data::<SmsTabActive>(id) {
+            match data {
+                SmsTabActive::Contacts => {
+                    return Task::none();
+                }
+                SmsTabActive::Thread(conversation_data) => {
+                    return Task::done(Action::App(SmsMessage::SelectThread(
+                        conversation_data.key.clone(),
+                    )));
+                }
+            }
+        }
+
+        Task::none()
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
@@ -226,13 +270,15 @@ impl Application for SmsWindow {
     }
 
     fn update(&mut self, message: Self::Message) -> Task<Action<Self::Message>> {
+        let mut tasks = vec![];
+
         match message {
             SmsMessage::LoadConversations => {
                 let device_id = self.device_id.clone();
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     dbus::fetch_conversations(&device_id).await;
                     Action::App(SmsMessage::RefreshThread)
-                });
+                }));
             }
             SmsMessage::ConversationsLoaded(conversations) => {
                 debug!("ConversationsLoaded: {}", conversations.len());
@@ -250,7 +296,7 @@ impl Application for SmsWindow {
                     "ContactPhotosLoaded: {} photos, baking off the UI thread",
                     photos.len()
                 );
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     let baked = tokio::task::spawn_blocking(move || {
                         photos
                             .into_iter()
@@ -265,7 +311,7 @@ impl Application for SmsWindow {
                         HashMap::new()
                     });
                     Action::App(SmsMessage::AvatarsBaked(baked))
-                });
+                }));
             }
             SmsMessage::AvatarsBaked(baked) => {
                 debug!("AvatarsBaked: {} avatars", baked.len());
@@ -277,10 +323,10 @@ impl Application for SmsWindow {
             } => {
                 debug!("RequestFullAttachment part_id={}", part_id);
                 let device_id = self.device_id.clone();
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     dbus::request_sms_attachment(&device_id, part_id, &unique_identifier).await;
                     Action::None
-                });
+                }));
             }
             SmsMessage::AttachmentReceived(filename, path) => {
                 debug!("AttachmentReceived {} -> {:?}", filename, path);
@@ -294,16 +340,16 @@ impl Application for SmsWindow {
             }
             SmsMessage::OpenAttachment(path) => {
                 debug!("OpenAttachment {:?}", path);
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     if let Err(e) = tokio::process::Command::new("xdg-open").arg(&path).spawn() {
                         warn!("failed to open attachment {:?}: {}", path, e);
                     }
                     Action::None
-                });
+                }));
             }
             SmsMessage::SaveAttachment(path) => {
                 debug!("SaveAttachment {:?}", path);
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     let suggested_name = path
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
@@ -343,14 +389,14 @@ impl Application for SmsWindow {
                         }
                     }
                     Action::None
-                });
+                }));
             }
             SmsMessage::PickAttachment => {
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     let paths =
                         crate::portal::pick_files(fl!("sms-attach-picker-title"), true, None).await;
                     Action::App(SmsMessage::AttachmentsPicked(paths))
-                });
+                }));
             }
             SmsMessage::AttachmentsPicked(paths) => {
                 debug!("AttachmentsPicked: {} file(s)", paths.len());
@@ -368,10 +414,13 @@ impl Application for SmsWindow {
                         .insert(thread_id.clone(), conv.timestamp);
                 }
                 self.selected_thread = Some(thread_id.clone());
+
                 self.messages.clear();
+
                 let device_id = self.device_id.clone();
                 let device_id2 = device_id.clone();
                 let last_seen = self.last_seen_timestamp.clone();
+
                 return Task::batch([
                     cosmic::task::future(async move {
                         dbus::request_conversation_messages(&device_id, &thread_id).await;
@@ -389,6 +438,28 @@ impl Application for SmsWindow {
             }
             SmsMessage::UpdateSearch(query) => {
                 self.search_query = query;
+            }
+            SmsMessage::ToggleConversationSearch => {
+                self.search_field_active = !self.search_field_active;
+            }
+            SmsMessage::ConversationLookup(query) => {
+                self.conversation_query = query.clone();
+
+                if self.conversation_query.len() >= 3 {
+                    let mut matched_msgs = self
+                        .messages
+                        .iter()
+                        .filter(|m| {
+                            m.body
+                                .to_lowercase()
+                                .contains(&self.conversation_query.to_lowercase())
+                        })
+                        .map(|m| m.clone())
+                        .collect::<Vec<Message>>();
+
+                    matched_msgs.sort_by_key(|m| m.date);
+                    self.filtered_messages = matched_msgs;
+                }
             }
             SmsMessage::SendMessage => {
                 if self.message_input.trim().is_empty() && self.pending_attachments.is_empty() {
@@ -462,13 +533,13 @@ impl Application for SmsWindow {
                     },
                 );
 
-                return Task::batch(vec![
+                tasks.push(Task::batch(vec![
                     scroll_task.map(|_: cosmic::widget::Id| Action::App(SmsMessage::RefreshThread)),
                     cosmic::task::future(async move {
                         dbus::send_sms(&device_id, &phone, &text, attachments).await;
                         Action::App(SmsMessage::RefreshThread)
                     }),
-                ]);
+                ]));
             }
             SmsMessage::RefreshThread => {}
             SmsMessage::ProtocolEventReceived(event) => {
@@ -509,7 +580,9 @@ impl Application for SmsWindow {
                     );
                     self.show_new_chat_dialog = false;
                     self.new_chat_phone_input.clear();
-                    return cosmic::task::message(Action::App(SmsMessage::SelectThread(thread_id)));
+                    tasks.push(cosmic::task::message(Action::App(
+                        SmsMessage::SelectThread(thread_id),
+                    )));
                 }
             }
             SmsMessage::CloseWindow => std::process::exit(0),
@@ -543,13 +616,16 @@ impl Application for SmsWindow {
 
                 let device_id = self.device_id.clone();
                 let hidden = self.hidden_conversations.clone();
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     kdeconnect_core::hidden_conversations::save_hidden(&device_id, &hidden).await;
                     Action::None
-                });
+                }));
             }
         }
-        Task::none()
+
+        self.update_nav_model();
+
+        Task::batch(tasks)
     }
 
     fn dialog(&self) -> Option<Element<'_, Self::Message>> {
@@ -559,15 +635,57 @@ impl Application for SmsWindow {
     }
 
     fn view(&self) -> Element<'_, Self::Message> {
-        widget::container(views::view_main(self))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(cosmic::iced::Alignment::Center)
-            .into()
+        let content = match &self.active_tab {
+            SmsTabActive::Contacts => views::view_contacts(self),
+            SmsTabActive::Thread(conversation_data) => {
+                views::view_thread(self, conversation_data.key.clone())
+            }
+        };
+
+        widget::container(content).center(Length::Fill).into()
     }
 }
 
 impl SmsWindow {
+    fn update_nav_model(&mut self) {
+        let previous_active = self.nav_model.active();
+
+        let mut nav_model = segmented_button::ModelBuilder::default();
+
+        // show contacts button
+        nav_model = nav_model.insert(|b| {
+            b.text(fl!("sms-new-chat-contacts"))
+                .icon(widget::icon::from_name("contact-new-symbolic"))
+                .data(SmsTabActive::Contacts)
+        });
+
+        self.conversations
+            .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+        if !self.conversations.is_empty() {
+            for conv in &self.conversations {
+                let data = ConversationData {
+                    key: conv.thread_id.clone(),
+                    contact: if !conv.contact_name.is_empty() {
+                        conv.contact_name.clone()
+                    } else {
+                        conv.phone_number.clone()
+                    },
+                };
+
+                nav_model = nav_model.insert(|b| {
+                    b.text(data.contact.clone())
+                        .icon(widget::icon::from_name("contact-new-symbolic"))
+                        .data(SmsTabActive::Thread(data))
+                });
+            }
+        }
+
+        self.nav_model = nav_model.build();
+
+        self.nav_model.activate(previous_active);
+    }
+
     /// Builds the delete-confirmation dialog shown via `Application::dialog()`.
     fn delete_confirm_dialog(&self) -> Element<'_, SmsMessage> {
         let display_name = self

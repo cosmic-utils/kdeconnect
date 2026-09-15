@@ -1,8 +1,14 @@
 //! UI view implementations for the SMS window.
 
-use cosmic::Element;
-use cosmic::iced::{Alignment, Length};
+use cosmic::iced::alignment::Horizontal::{self, Center};
+use cosmic::iced::{Alignment, Length, Radius};
 use cosmic::widget;
+use cosmic::widget::button::Style;
+use cosmic::widget::space::horizontal;
+use cosmic::{Element, theme};
+use tracing::Instrument;
+
+use crate::plugins::sms::models::Message;
 
 use super::actions::SmsMessage;
 use super::app::SmsWindow;
@@ -83,26 +89,6 @@ fn mixed_emoji_text<'a, M: 'a>(s: &str, size: u16) -> Element<'a, M> {
 /// Stable ID for the conversations list scrollable, used to scroll it programmatically.
 pub static CONVERSATIONS_SCROLLABLE_ID: std::sync::LazyLock<cosmic::widget::Id> =
     std::sync::LazyLock::new(cosmic::widget::Id::unique);
-
-/// Main view - conversations list + thread view
-pub fn view_main(app: &SmsWindow) -> Element<'_, SmsMessage> {
-    let spacing = cosmic::theme::active().cosmic().spacing;
-
-    widget::Container::new(
-        widget::Row::new()
-            .spacing(0)
-            .push(view_conversations_list(app, &spacing))
-            .push(
-                widget::container(widget::divider::vertical::default())
-                    .height(Length::Fill)
-                    .padding([0, spacing.space_xxs]),
-            )
-            .push(view_thread_panel(app, &spacing)),
-    )
-    .class(cosmic::theme::Container::Primary)
-    .max_width(1000.0)
-    .into()
-}
 
 /// Manually re-syncs conversations from the phone. `LoadConversations` was
 /// already fully wired in `update()` but had no UI entry point — everything
@@ -306,20 +292,8 @@ fn view_conversation_item<'a>(
 }
 
 /// Thread panel (messages + input)
-fn view_thread_panel<'a>(
-    app: &'a SmsWindow,
-    spacing: &cosmic::cosmic_theme::Spacing,
-) -> Element<'a, SmsMessage> {
-    let Some(thread_id) = &app.selected_thread else {
-        return widget::container(widget::text(fl!("sms-select-conversation")).size(14))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
-            .into();
-    };
-
-    let Some(conv) = app.conversations.iter().find(|c| c.thread_id == *thread_id) else {
+pub(crate) fn view_thread<'a>(app: &'a SmsWindow, thread_id: String) -> Element<'a, SmsMessage> {
+    let Some(conv) = app.conversations.iter().find(|c| c.thread_id == thread_id) else {
         return widget::container(widget::text(fl!("sms-conversation-not-found")).size(14))
             .width(Length::Fill)
             .height(Length::Fill)
@@ -328,23 +302,101 @@ fn view_thread_panel<'a>(
             .into();
     };
 
-    let mut content = widget::Column::new().spacing(0);
+    let spacing = cosmic::theme::active().cosmic().spacing;
+
+    let mut content = widget::Column::new();
 
     // Header
-    content = content.push(view_thread_header(app, conv, spacing));
+    content = content.push(view_thread_header(app, conv, &spacing));
     content = content.push(widget::divider::horizontal::default());
-
     // Messages
-    content = content.push(view_messages_list(app, spacing));
-    content = content.push(widget::divider::horizontal::default());
-
+    content = content.push(view_messages_list(app, &spacing));
     // Input
-    content = content.push(view_message_input(app, spacing));
+    content = content.push(view_message_input(app, &spacing));
 
     widget::container(content)
+        .padding(spacing.space_xxs)
+        .max_width(1000)
         .width(Length::Fill)
         .height(Length::Fill)
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+        .align_x(Horizontal::Center)
         .into()
+}
+
+/// Contacts Tab
+pub fn view_contacts(app: &SmsWindow) -> Element<'_, SmsMessage> {
+    let spacing = cosmic::theme::active().cosmic().spacing;
+
+    widget::container(widget::Column::new().push(contacts_header(app, &spacing)))
+        .width(Length::Fill)
+        .into()
+}
+
+/// Contacts Tab
+pub fn contacts_header<'a>(
+    app: &'a SmsWindow,
+    spacing: &cosmic::cosmic_theme::Spacing,
+) -> Element<'a, SmsMessage> {
+    widget::container(
+        widget::Column::new()
+            .push(
+                widget::search_input(fl!("sms-search-placeholder"), &app.search_query)
+                    .on_input(SmsMessage::UpdateSearch),
+            )
+            .push(contacts_searched_convs(app, spacing))
+            .push(
+                widget::search_input(fl!("sms-search-placeholder"), &app.search_query)
+                    .on_input(SmsMessage::UpdateSearch),
+            ),
+    )
+    .width(Length::Fill)
+    .into()
+}
+
+fn contacts_searched_convs<'a>(
+    app: &'a SmsWindow,
+    spacing: &cosmic::cosmic_theme::Spacing,
+) -> Element<'a, SmsMessage> {
+    let mut filtered: Vec<_> = app
+        .conversations
+        .iter()
+        .filter(|c| conversation_matches_search(app, c))
+        .collect();
+
+    // Sort by timestamp (most recent first)
+    filtered.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+    let content = if filtered.is_empty() {
+        let msg = if app.search_query.is_empty() {
+            fl!("sms-no-conversations")
+        } else {
+            fl!("sms-no-matching-conversations")
+        };
+
+        widget::container(widget::text(msg).size(14))
+            .width(Length::Fill)
+            .padding(spacing.space_xl)
+            .center_x(Length::Fill)
+    } else {
+        let mut list = widget::Column::new()
+            .spacing(0)
+            .padding(cosmic::iced::Padding {
+                top: 0.0,
+                bottom: 0.0,
+                left: 0.0,
+                right: 10.0,
+            });
+
+        for conv in filtered {
+            list = list.push(view_conversation_item(app, conv, spacing));
+        }
+
+        widget::container(widget::scrollable(list))
+    };
+
+    widget::container(content).into()
 }
 
 fn view_thread_header<'a>(
@@ -352,28 +404,40 @@ fn view_thread_header<'a>(
     conv: &'a Conversation,
     spacing: &cosmic::cosmic_theme::Spacing,
 ) -> Element<'a, SmsMessage> {
-    let display_name =
-        get_contact_name(app, &conv.phone_number).unwrap_or_else(|| conv.phone_number.clone());
     let photo = get_contact_photo(app, &conv.phone_number);
 
+    let display_name =
+        get_contact_name(app, &conv.phone_number).unwrap_or_else(|| conv.phone_number.clone());
+
+    let search_icon = widget::button::icon(widget::icon::from_name("system-search-symbolic"))
+        .on_press(SmsMessage::ToggleConversationSearch);
+
     widget::container(
-        widget::Row::new()
-            .push(view_contact_avatar(photo, 40.0))
+        widget::column::Column::new()
+            .spacing(spacing.space_xs)
             .push(
-                widget::Column::new()
+                widget::Row::new()
+                    .spacing(spacing.space_xxs)
+                    .push(view_contact_avatar(photo, 40.0))
                     .push(
-                        widget::text(display_name)
-                            .size(16)
-                            .font(cosmic::font::bold()),
+                        widget::Column::new()
+                            .push(widget::text::title4(display_name))
+                            .push(widget::text::caption(&conv.phone_number)),
                     )
-                    .push(widget::text(&conv.phone_number).size(12))
-                    .spacing(spacing.space_xxs),
+                    .push(horizontal())
+                    .push(search_icon)
+                    .align_y(Alignment::Center),
             )
-            .spacing(spacing.space_s)
-            .align_y(Alignment::Center)
-            .padding(spacing.space_s),
+            .push_maybe(if app.search_field_active {
+                Some(
+                    widget::search_input(fl!("sms-search-placeholder"), &app.conversation_query)
+                        .on_input(SmsMessage::ConversationLookup),
+                )
+            } else {
+                None
+            }),
     )
-    .class(cosmic::theme::Container::Card)
+    .padding([0, 0, spacing.space_xs, 0])
     .width(Length::Fill)
     .into()
 }
@@ -400,8 +464,14 @@ fn view_messages_list<'a>(
             .padding(spacing.space_xl),
         );
     } else {
-        for msg in &app.messages {
-            messages_column = messages_column.push(view_message_bubble(app, msg, spacing));
+        if app.conversation_query.len() >= 3 {
+            for msg in &app.filtered_messages {
+                messages_column = messages_column.push(view_message_bubble(app, msg, spacing));
+            }
+        } else {
+            for msg in &app.messages {
+                messages_column = messages_column.push(view_message_bubble(app, msg, spacing));
+            }
         }
     }
 
@@ -543,12 +613,10 @@ fn view_message_bubble<'a>(
         .padding(spacing.space_s);
 
     let message_bubble = if is_sent {
-        widget::container(message_content)
-            .class(cosmic::theme::Container::Primary)
-            .max_width(500.0)
+        widget::container(widget::button::custom(message_content).class(theme::Button::Suggested))
+            .max_width(500)
     } else {
-        widget::container(message_content)
-            .class(cosmic::theme::Container::Secondary)
+        widget::container(widget::button::custom(message_content).class(theme::Button::Standard))
             .max_width(500.0)
     };
 
@@ -585,23 +653,27 @@ fn view_message_input<'a>(
             widget::text_input(message_placeholder, &app.message_input)
                 .on_input(SmsMessage::UpdateInput)
                 .on_submit(|_| SmsMessage::SendMessage)
-                .padding(spacing.space_s)
                 .width(Length::Fill),
         )
         .push(widget::button::suggested(fl!("sms-send")).on_press(SmsMessage::SendMessage))
-        .spacing(spacing.space_xs)
+        .spacing(spacing.space_xxs)
         .align_y(Alignment::Center);
 
     let mut col = widget::Column::new().spacing(spacing.space_xs);
+
     if app.show_emoji_picker {
         col = col.push(view_emoji_picker(app, spacing));
     }
     if !app.pending_attachments.is_empty() {
         col = col.push(view_pending_attachments(app, spacing));
     }
+
     col = col.push(input_row);
 
-    col.padding(spacing.space_s).into()
+    widget::container(col)
+        .padding(spacing.space_xxs)
+        .class(theme::Container::Primary)
+        .into()
 }
 
 /// Staged outgoing attachments, shown as a row of removable chips above

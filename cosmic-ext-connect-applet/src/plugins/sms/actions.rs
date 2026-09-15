@@ -6,6 +6,8 @@
 
 use std::collections::HashMap;
 
+use crate::plugins::sms::app::ConversationData;
+
 use super::avatar::Avatar;
 use super::emoji::EmojiCategory;
 use super::models::{Conversation, ProtocolEvent};
@@ -30,6 +32,8 @@ pub enum SmsMessage {
     SelectThread(String),
     UpdateInput(String),
     UpdateSearch(String),
+    ToggleConversationSearch,
+    ConversationLookup(String),
     SendMessage,
     RefreshThread,
     #[allow(dead_code)]
@@ -77,4 +81,10 @@ pub enum SmsMessage {
     AttachmentsPicked(Vec<String>),
     /// Removes one staged attachment by index before sending.
     RemovePendingAttachment(usize),
+}
+
+#[derive(Clone, Debug)]
+pub enum SmsTabActive {
+    Contacts,
+    Thread(ConversationData),
 }
