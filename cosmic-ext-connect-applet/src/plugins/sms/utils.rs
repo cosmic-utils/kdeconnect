@@ -74,12 +74,13 @@ pub fn phone_numbers_match(phone1: &str, phone2: &str) -> bool {
 }
 
 /// Sort contacts alphabetically
-pub fn sort_cached_contacts(contacts: std::collections::HashMap<String, String>) -> Vec<(String, String)> {
+pub fn sort_cached_contacts(
+    contacts: std::collections::HashMap<String, String>,
+) -> Vec<(String, String)> {
     let mut sorted_contacts: Vec<_> = contacts.clone().into_iter().collect();
     sorted_contacts.sort_by(|a, b| a.1.cmp(&b.1));
     sorted_contacts
 }
-
 
 pub fn truncate_message(s: &str, max_len: usize) -> String {
     let mut char_count = 0;

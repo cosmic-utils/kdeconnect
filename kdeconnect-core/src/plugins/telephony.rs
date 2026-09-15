@@ -1,13 +1,10 @@
-use serde::{Deserialize, Serialize};
-use base64::{engine::general_purpose, Engine as _};
 use crate::plugins::mpris;
+use base64::{Engine as _, engine::general_purpose};
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::info;
 
-use crate::{
-    device::Device,
-    event::CoreEvent,
-};
+use crate::{device::Device, event::CoreEvent};
 
 // Pause/resume is handled by mpris::monitor_mpris via telephony_call_signal()
 // which reuses the persistent PlayerFinder held in that thread.
