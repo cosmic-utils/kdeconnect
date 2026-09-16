@@ -498,10 +498,14 @@ fn view_message_bubble<'a>(
         .push(widget::container(
             widget::row::Row::new()
                 .align_y(Alignment::Center)
-                .push(
-                    widget::button::icon(widget::icon::from_name("go-jump-symbolic"))
-                        .on_press(SmsMessage::ScrolltoMessage(position)),
-                )
+                .push_maybe(if app.search_field_active {
+                    Some(
+                        widget::button::icon(widget::icon::from_name("go-jump-symbolic"))
+                            .on_press(SmsMessage::ScrolltoMessage(position)),
+                    )
+                } else {
+                    None
+                })
                 .push(widget::text(format_timestamp(msg.date)).size(11)),
         ))
         .padding(spacing.space_s);
