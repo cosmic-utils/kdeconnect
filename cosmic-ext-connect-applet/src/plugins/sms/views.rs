@@ -1,14 +1,11 @@
 //! UI view implementations for the SMS window.
 
-use cosmic::iced::alignment::Horizontal::{self, Center};
-use cosmic::iced::{Alignment, Length, Radius};
-use cosmic::widget;
-use cosmic::widget::button::Style;
+use cosmic::iced::alignment::Horizontal::{self};
+use cosmic::iced::widget::scrollable;
+use cosmic::iced::{Alignment, Length};
 use cosmic::widget::space::horizontal;
+use cosmic::widget::{self};
 use cosmic::{Element, theme};
-use tracing::Instrument;
-
-use crate::plugins::sms::models::Message;
 
 use super::actions::SmsMessage;
 use super::app::SmsWindow;
@@ -90,121 +87,9 @@ fn mixed_emoji_text<'a, M: 'a>(s: &str, size: u16) -> Element<'a, M> {
 pub static CONVERSATIONS_SCROLLABLE_ID: std::sync::LazyLock<cosmic::widget::Id> =
     std::sync::LazyLock::new(cosmic::widget::Id::unique);
 
-/// Manually re-syncs conversations from the phone. `LoadConversations` was
-/// already fully wired in `update()` but had no UI entry point — everything
-/// else updates via the live event stream.
-fn view_refresh_button<'a>() -> Element<'a, SmsMessage> {
-    widget::button::icon(widget::icon::from_name("view-refresh-symbolic").handle())
-        .on_press(SmsMessage::LoadConversations)
-        .into()
-}
-
-/// Conversations list panel
-fn view_conversations_list<'a>(
-    app: &'a SmsWindow,
-    spacing: &cosmic::cosmic_theme::Spacing,
-) -> Element<'a, SmsMessage> {
-    let mut content = widget::Column::new().spacing(spacing.space_xs);
-
-    let contacts_by_name = app
-        .contacts
-        .iter()
-        .map(|(_p, name)| name.to_string())
-        .collect::<Vec<String>>();
-
-    let contacts_dropdown = widget::dropdown(
-        contacts_by_name,
-        app.contact_idx,
-        SmsMessage::SelectContactForNewChat,
-    )
-    .width(Length::Fill);
-
-    if app.contacts.is_empty() {
-        content = content
-            .push(widget::container(
-                widget::text(fl!("sms-new-chat-no-contacts"))
-                    .align_x(Alignment::Center)
-                    .width(Length::Fill)
-                    .size(12),
-            ))
-            .spacing(spacing.space_xs)
-            .padding(spacing.space_s)
-    } else {
-        let start_button_enabled = !app.new_chat_phone_input.trim().is_empty();
-
-        content = content.push(
-            widget::Row::new()
-                .push(contacts_dropdown)
-                .push(
-                    widget::button::standard(fl!("sms-new-chat-cancel"))
-                        .on_press(SmsMessage::CloseNewChatDialog),
-                )
-                .push(
-                    widget::button::suggested(fl!("sms-new-chat-start")).on_press_maybe(
-                        if start_button_enabled {
-                            Some(SmsMessage::CreateNewChat)
-                        } else {
-                            None
-                        },
-                    ),
-                ),
-        );
-    }
-
-    // Search input
-    content = content.push(
-        widget::Row::new().push(view_refresh_button()).push(
-            widget::search_input(fl!("sms-search-placeholder"), &app.search_query)
-                .on_input(SmsMessage::UpdateSearch),
-        ),
-    );
-    content = content.push(widget::divider::horizontal::default());
-
-    // Filter conversations
-    let mut filtered: Vec<_> = app
-        .conversations
-        .iter()
-        .filter(|c| conversation_matches_search(app, c))
-        .collect();
-
-    // Sort by timestamp (most recent first)
-    filtered.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
-
-    if filtered.is_empty() {
-        let msg = if app.search_query.is_empty() {
-            fl!("sms-no-conversations")
-        } else {
-            fl!("sms-no-matching-conversations")
-        };
-
-        content = content.push(
-            widget::container(widget::text(msg).size(14))
-                .width(Length::Fill)
-                .padding(spacing.space_xl)
-                .center_x(Length::Fill),
-        );
-    } else {
-        let mut list = widget::Column::new()
-            .spacing(0)
-            .padding(cosmic::iced::Padding {
-                top: 0.0,
-                bottom: 0.0,
-                left: 0.0,
-                right: 10.0,
-            });
-
-        for conv in filtered {
-            list = list.push(view_conversation_item(app, conv, spacing));
-        }
-
-        content = content.push(widget::scrollable(list).height(Length::Fill));
-    }
-
-    widget::container(content)
-        .width(Length::Fixed(300.0))
-        .height(Length::Fill)
-        .into()
-}
+/// ID for the conversion search input, used to focus it when show up
+pub static CONVERSATIONS_SEARCH_INPUT_ID: std::sync::LazyLock<cosmic::widget::Id> =
+    std::sync::LazyLock::new(cosmic::widget::Id::unique);
 
 fn conversation_matches_search(app: &SmsWindow, conv: &Conversation) -> bool {
     if app.search_query.is_empty() {
@@ -431,7 +316,8 @@ fn view_thread_header<'a>(
             .push_maybe(if app.search_field_active {
                 Some(
                     widget::search_input(fl!("sms-search-placeholder"), &app.conversation_query)
-                        .on_input(SmsMessage::ConversationLookup),
+                        .on_input(SmsMessage::ConversationLookup)
+                        .id(CONVERSATIONS_SEARCH_INPUT_ID.clone()),
                 )
             } else {
                 None
@@ -466,20 +352,27 @@ fn view_messages_list<'a>(
     } else {
         if app.conversation_query.len() >= 3 {
             for msg in &app.filtered_messages {
-                messages_column = messages_column.push(view_message_bubble(app, msg, spacing));
+                let position = app
+                    .messages
+                    .iter()
+                    .position(|m| m.id == msg.id)
+                    .unwrap_or_default();
+                messages_column =
+                    messages_column.push(view_message_bubble(app, msg, spacing, position));
             }
         } else {
-            for msg in &app.messages {
-                messages_column = messages_column.push(view_message_bubble(app, msg, spacing));
+            for (position, msg) in app.messages.iter().enumerate() {
+                messages_column =
+                    messages_column.push(view_message_bubble(app, msg, spacing, position));
             }
         }
     }
 
     widget::scrollable(messages_column)
+        .id(CONVERSATIONS_SCROLLABLE_ID.clone())
         .height(Length::Fill)
-        .direction(cosmic::iced::widget::scrollable::Direction::Vertical(
-            cosmic::iced::widget::scrollable::Scrollbar::new()
-                .anchor(cosmic::iced::widget::scrollable::Anchor::End),
+        .direction(scrollable::Direction::Vertical(
+            scrollable::Scrollbar::new().anchor(scrollable::Anchor::End),
         ))
         .into()
 }
@@ -583,6 +476,7 @@ fn view_message_bubble<'a>(
     app: &'a SmsWindow,
     msg: &'a super::models::Message,
     spacing: &cosmic::cosmic_theme::Spacing,
+    position: usize,
 ) -> Element<'a, SmsMessage> {
     let is_sent = msg.is_sent();
     let mut message_content = widget::Column::new().spacing(spacing.space_xxs);
@@ -612,12 +506,22 @@ fn view_message_bubble<'a>(
         .push(widget::text(format_timestamp(msg.date)).size(11))
         .padding(spacing.space_s);
 
+    let bubble_button = widget::button::custom(message_content).padding(spacing.space_xs);
+
     let message_bubble = if is_sent {
-        widget::container(widget::button::custom(message_content).class(theme::Button::Suggested))
-            .max_width(500)
+        widget::container(
+            bubble_button
+                .class(theme::Button::Suggested)
+                .on_press(SmsMessage::ScrolltoMessage(position)),
+        )
+        .max_width(500)
     } else {
-        widget::container(widget::button::custom(message_content).class(theme::Button::Standard))
-            .max_width(500.0)
+        widget::container(
+            bubble_button
+                .class(theme::Button::Standard)
+                .on_press(SmsMessage::ScrolltoMessage(position)),
+        )
+        .max_width(500.0)
     };
 
     if is_sent {
@@ -709,8 +613,8 @@ fn view_pending_attachments<'a>(
         );
     }
     widget::scrollable(row)
-        .direction(cosmic::iced::widget::scrollable::Direction::Horizontal(
-            cosmic::iced::widget::scrollable::Scrollbar::new(),
+        .direction(scrollable::Direction::Horizontal(
+            scrollable::Scrollbar::new(),
         ))
         .into()
 }

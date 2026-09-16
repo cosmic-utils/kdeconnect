@@ -1,6 +1,7 @@
 use async_stream::stream;
 use cosmic::iced::Length;
 use cosmic::iced::widget::scrollable;
+use cosmic::widget::text_input::focus;
 use cosmic::widget::{nav_bar, segmented_button};
 use cosmic::{
     Action, Application, ApplicationExt, Element, Task, app::Core, iced::Subscription, widget,
@@ -9,8 +10,6 @@ use futures::StreamExt;
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
 
-use crate::plugins::sms::actions::SmsTabActive;
-
 use super::actions::SmsMessage;
 use super::avatar::{self, Avatar};
 use super::dbus;
@@ -18,6 +17,8 @@ use super::emoji::EmojiCategory;
 use super::models::{Conversation, Message, MessageAttachment, ProtocolEvent};
 use super::utils;
 use super::views;
+use crate::plugins::sms::actions::SmsTabActive;
+use crate::plugins::sms::views::CONVERSATIONS_SEARCH_INPUT_ID;
 
 #[derive(Clone, Debug)]
 pub struct ConversationData {
@@ -431,6 +432,13 @@ impl Application for SmsWindow {
                             .await;
                         Action::None
                     }),
+                    scrollable::snap_to(
+                        views::CONVERSATIONS_SCROLLABLE_ID.clone(),
+                        scrollable::RelativeOffset {
+                            x: Some(0.0),
+                            y: Some(0.0),
+                        },
+                    ),
                 ]);
             }
             SmsMessage::UpdateInput(input) => {
@@ -441,6 +449,15 @@ impl Application for SmsWindow {
             }
             SmsMessage::ToggleConversationSearch => {
                 self.search_field_active = !self.search_field_active;
+
+                if self.search_field_active {
+                    return focus(CONVERSATIONS_SEARCH_INPUT_ID.clone());
+                }
+
+                if !self.search_field_active {
+                    self.conversation_query.clear();
+                    self.filtered_messages.clear();
+                }
             }
             SmsMessage::ConversationLookup(query) => {
                 self.conversation_query = query.clone();
@@ -460,6 +477,22 @@ impl Application for SmsWindow {
                     matched_msgs.sort_by_key(|m| m.date);
                     self.filtered_messages = matched_msgs;
                 }
+            }
+            SmsMessage::ScrolltoMessage(position) => {
+                let offset_y =
+                    (1.0 / self.messages.len() as f32) * (self.messages.len() - position) as f32;
+
+                self.conversation_query.clear();
+                self.filtered_messages.clear();
+                self.search_field_active = false;
+
+                return scrollable::snap_to(
+                    views::CONVERSATIONS_SCROLLABLE_ID.clone(),
+                    scrollable::RelativeOffset {
+                        x: Some(0.0),
+                        y: Some(offset_y),
+                    },
+                );
             }
             SmsMessage::SendMessage => {
                 if self.message_input.trim().is_empty() && self.pending_attachments.is_empty() {
