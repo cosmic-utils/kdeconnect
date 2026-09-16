@@ -114,7 +114,7 @@ sms-send = Wyślij
 
 # SMS new chat dialog
 sms-new-chat-title = Rozpocznij czat
-sms-new-chat-prompt = Wpisz numer telefonu bądź nazwe kontaktu:
+sms-new-chat-prompt = Wpisz numer telefonu bądź nazwe kontaktu
 sms-new-chat-contacts = Kontakty
 sms-new-chat-cancel = Anuluj
 sms-new-chat-start = Zacznij 

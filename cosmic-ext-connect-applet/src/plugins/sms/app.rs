@@ -45,7 +45,7 @@ pub struct SmsWindow {
     pub messages: Vec<Message>,
     pub filtered_messages: Vec<Message>,
     pub message_input: String,
-    pub search_query: String,
+    pub search_contact_query: String,
     pub search_field_active: bool,
     pub conversation_query: String,
     pub show_new_chat_dialog: bool,
@@ -100,7 +100,7 @@ impl Application for SmsWindow {
             messages: Vec::new(),
             filtered_messages: Vec::new(),
             message_input: String::new(),
-            search_query: String::new(),
+            search_contact_query: String::new(),
             search_field_active: false,
             conversation_query: String::new(),
             show_new_chat_dialog: false,
@@ -444,8 +444,8 @@ impl Application for SmsWindow {
             SmsMessage::UpdateInput(input) => {
                 self.message_input = input;
             }
-            SmsMessage::UpdateSearch(query) => {
-                self.search_query = query;
+            SmsMessage::UpdateSearchContact(query) => {
+                self.search_contact_query = query;
             }
             SmsMessage::ToggleConversationSearch => {
                 self.search_field_active = !self.search_field_active;
@@ -675,7 +675,7 @@ impl Application for SmsWindow {
             }
         };
 
-        widget::container(content).center(Length::Fill).into()
+        widget::container(content).center_x(Length::Fill).into()
     }
 }
 
