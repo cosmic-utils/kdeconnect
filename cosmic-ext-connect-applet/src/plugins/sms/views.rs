@@ -2,10 +2,10 @@
 
 use cosmic::iced::alignment::Horizontal::{self};
 use cosmic::iced::widget::scrollable;
-use cosmic::iced::{Alignment, Length};
+use cosmic::iced::{self, Alignment, Length};
 use cosmic::widget::space::horizontal;
 use cosmic::widget::{self};
-use cosmic::{Element, theme};
+use cosmic::{Element, font, theme};
 
 use super::actions::SmsMessage;
 use super::app::SmsWindow;
@@ -49,21 +49,19 @@ fn mixed_emoji_text<'a, M: 'a>(s: &str, size: u16) -> Element<'a, M> {
     use cosmic::iced::widget::text::Span;
     use cosmic::iced::widget::{rich_text, span};
 
-    let mut spans: Vec<Span<'a, (), cosmic::iced::Font>> = Vec::new();
+    let mut spans: Vec<Span<'a, (), iced::Font>> = Vec::new();
     let mut run_start = 0;
     let mut run_is_emoji = false;
     let mut first_run = true;
 
-    let push_run = |spans: &mut Vec<Span<'a, (), cosmic::iced::Font>>,
-                    start: usize,
-                    end: usize,
-                    is_emoji: bool| {
-        if start == end {
-            return;
-        }
-        let sp = span(s[start..end].to_string());
-        spans.push(if is_emoji { sp.font(EMOJI_FONT) } else { sp });
-    };
+    let push_run =
+        |spans: &mut Vec<Span<'a, (), iced::Font>>, start: usize, end: usize, is_emoji: bool| {
+            if start == end {
+                return;
+            }
+            let sp = span(s[start..end].to_string());
+            spans.push(if is_emoji { sp.font(EMOJI_FONT) } else { sp });
+        };
 
     for (i, ch) in s.char_indices() {
         let is_emoji = is_emoji_char(ch);
@@ -265,14 +263,12 @@ fn contacts_searched_convs<'a>(
             .padding(spacing.space_xl)
             .center_x(Length::Fill)
     } else {
-        let mut list = widget::Column::new()
-            .spacing(0)
-            .padding(cosmic::iced::Padding {
-                top: 0.0,
-                bottom: 0.0,
-                left: 0.0,
-                right: 10.0,
-            });
+        let mut list = widget::Column::new().spacing(0).padding(iced::Padding {
+            top: 0.0,
+            bottom: 0.0,
+            left: 0.0,
+            right: 10.0,
+        });
 
         for conv in filtered {
             list = list.push(view_conversation_item(app, conv, spacing));
@@ -488,11 +484,7 @@ fn view_message_bubble<'a>(
 
         let sender_label = get_contact_name(app, &phone_number).unwrap_or(phone_number);
 
-        message_content = message_content.push(
-            widget::text(sender_label)
-                .size(11)
-                .font(cosmic::font::bold()),
-        );
+        message_content = message_content.push(widget::text(sender_label).font(font::bold()));
     }
 
     for attachment in &msg.attachments {
@@ -503,25 +495,47 @@ fn view_message_bubble<'a>(
 
     message_content = message_content
         .push(mixed_emoji_text(&msg.body, 14))
-        .push(widget::text(format_timestamp(msg.date)).size(11))
+        .push(widget::container(
+            widget::row::Row::new()
+                .align_y(Alignment::Center)
+                .push(
+                    widget::button::icon(widget::icon::from_name("go-jump-symbolic"))
+                        .on_press(SmsMessage::ScrolltoMessage(position)),
+                )
+                .push(widget::text(format_timestamp(msg.date)).size(11)),
+        ))
         .padding(spacing.space_s);
 
-    let bubble_button = widget::button::custom(message_content).padding(spacing.space_xs);
-
     let message_bubble = if is_sent {
-        widget::container(
-            bubble_button
-                .class(theme::Button::Suggested)
-                .on_press(SmsMessage::ScrolltoMessage(position)),
-        )
-        .max_width(500)
+        widget::container(message_content)
+            .class(cosmic::theme::Container::custom(move |theme| {
+                iced::widget::container::Style {
+                    background: Some(iced::Background::Color(
+                        theme.cosmic().accent_color().into(),
+                    )),
+                    border: iced::Border {
+                        radius: iced::Radius::from(8.0),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            }))
+            .max_width(500)
     } else {
-        widget::container(
-            bubble_button
-                .class(theme::Button::Standard)
-                .on_press(SmsMessage::ScrolltoMessage(position)),
-        )
-        .max_width(500.0)
+        widget::container(message_content)
+            .class(cosmic::theme::Container::custom(move |theme| {
+                iced::widget::container::Style {
+                    background: Some(iced::Background::Color(
+                        theme.cosmic().primary_component_color().into(),
+                    )),
+                    border: iced::Border {
+                        radius: iced::Radius::from(8.0),
+                        ..Default::default()
+                    },
+                    ..Default::default()
+                }
+            }))
+            .max_width(500)
     };
 
     if is_sent {
@@ -626,7 +640,7 @@ fn view_pending_attachments<'a>(
 // some smileys) to a non-color font that happens to also cover them, instead
 // of the color emoji font, which renders them as outlines tinted by the
 // button's text color. Pinning the glyph to the color emoji font avoids that.
-const EMOJI_FONT: cosmic::iced::Font = cosmic::iced::Font::with_name("Noto Color Emoji");
+const EMOJI_FONT: iced::Font = iced::Font::with_name("Noto Color Emoji");
 
 fn view_emoji_picker<'a>(
     app: &'a SmsWindow,
@@ -744,12 +758,12 @@ fn view_contact_avatar<'a>(
     .align_x(Alignment::Center)
     .align_y(Alignment::Center)
     .class(cosmic::theme::Container::custom(move |theme| {
-        cosmic::iced::widget::container::Style {
-            background: Some(cosmic::iced::Background::Color(
+        iced::widget::container::Style {
+            background: Some(iced::Background::Color(
                 theme.cosmic().bg_component_color().into(),
             )),
-            border: cosmic::iced::Border {
-                radius: cosmic::iced::Radius::from(size / 2.0),
+            border: iced::Border {
+                radius: iced::Radius::from(size / 2.0),
                 ..Default::default()
             },
             ..Default::default()
