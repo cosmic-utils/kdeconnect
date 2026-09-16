@@ -34,6 +34,7 @@ pub enum SmsMessage {
     UpdateSearch(String),
     ToggleConversationSearch,
     ConversationLookup(String),
+    ScrolltoMessage(usize),
     SendMessage,
     RefreshThread,
     #[allow(dead_code)]
