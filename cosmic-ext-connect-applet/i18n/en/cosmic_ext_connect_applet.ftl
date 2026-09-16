@@ -114,7 +114,7 @@ sms-send = Send
 
 # SMS new chat dialog
 sms-new-chat-title = Start New Chat
-sms-new-chat-prompt = Enter phone number or contact name:
+sms-new-chat-prompt = Enter phone number or contact name
 sms-new-chat-contacts = Contacts
 sms-new-chat-cancel = Cancel
 sms-new-chat-start = Start Chat

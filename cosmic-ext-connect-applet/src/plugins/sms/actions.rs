@@ -31,7 +31,7 @@ pub enum SmsMessage {
     AvatarsBaked(HashMap<String, Avatar>),
     SelectThread(String),
     UpdateInput(String),
-    UpdateSearch(String),
+    UpdateSearchContact(String),
     ToggleConversationSearch,
     ConversationLookup(String),
     ScrolltoMessage(usize),

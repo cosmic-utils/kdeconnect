@@ -11,7 +11,7 @@ use super::actions::SmsMessage;
 use super::app::SmsWindow;
 use super::emoji::{EmojiCategory, is_emoji_char};
 use super::models::Conversation;
-use super::utils::{format_timestamp, normalize_phone_number, phone_numbers_match};
+use super::utils::{format_timestamp, phone_numbers_match};
 
 /// Max characters shown in the conversation-list preview before truncating
 /// with an ellipsis, so every row takes up the same amount of space
@@ -89,91 +89,6 @@ pub static CONVERSATIONS_SCROLLABLE_ID: std::sync::LazyLock<cosmic::widget::Id> 
 pub static CONVERSATIONS_SEARCH_INPUT_ID: std::sync::LazyLock<cosmic::widget::Id> =
     std::sync::LazyLock::new(cosmic::widget::Id::unique);
 
-fn conversation_matches_search(app: &SmsWindow, conv: &Conversation) -> bool {
-    if app.search_query.is_empty() {
-        return true;
-    }
-
-    let query = app.search_query.to_lowercase();
-    conv.contact_name.to_lowercase().contains(&query)
-        || conv.phone_number.contains(&app.search_query)
-        || normalize_phone_number(&conv.phone_number)
-            .contains(&normalize_phone_number(&app.search_query))
-}
-
-fn view_conversation_item<'a>(
-    app: &'a SmsWindow,
-    conv: &'a Conversation,
-    spacing: &cosmic::cosmic_theme::Spacing,
-) -> Element<'a, SmsMessage> {
-    let is_selected = app.selected_thread.as_ref() == Some(&conv.thread_id);
-
-    let display_name =
-        get_contact_name(app, &conv.phone_number).unwrap_or_else(|| conv.phone_number.clone());
-    let unread = is_conversation_unread(app, conv);
-
-    let mut name_row = widget::Row::new()
-        .push(
-            widget::text(display_name)
-                .size(14)
-                .font(cosmic::font::bold()),
-        )
-        .spacing(spacing.space_xs);
-
-    if unread {
-        name_row = name_row.push(widget::container(
-            widget::Space::new()
-                .width(Length::Fixed(8.0))
-                .height(Length::Fixed(8.0)),
-        ));
-    }
-
-    let delete_button =
-        widget::button::icon(widget::icon::from_name("user-trash-symbolic").handle()).on_press(
-            SmsMessage::RequestDeleteConversation(conv.thread_id.clone()),
-        );
-
-    let photo = get_contact_photo(app, &conv.phone_number);
-
-    let message_row = widget::Column::new()
-        .push(
-            name_row
-                .push(widget::space::horizontal())
-                .push(widget::text(format_timestamp(conv.timestamp)).size(11)),
-        )
-        .push(mixed_emoji_text(
-            &truncate_preview(&conv.last_message, PREVIEW_MAX_CHARS),
-            12,
-        ))
-        .spacing(spacing.space_xxs)
-        .padding(spacing.space_s);
-
-    let button = widget::button::custom(
-        widget::Row::new()
-            .push(
-                widget::container(view_contact_avatar(photo, 32.0)).padding([
-                    0,
-                    spacing.space_xs,
-                    0,
-                    spacing.space_s,
-                ]),
-            )
-            .push(message_row)
-            .push(delete_button)
-            .align_y(Alignment::Center),
-    )
-    .width(Length::Fill)
-    .on_press(SmsMessage::SelectThread(conv.thread_id.clone()));
-
-    let row_content = if is_selected {
-        button.class(cosmic::theme::Button::MenuItem)
-    } else {
-        button.class(cosmic::theme::Button::MenuRoot)
-    };
-
-    row_content.into()
-}
-
 /// Thread panel (messages + input)
 pub(crate) fn view_thread<'a>(app: &'a SmsWindow, thread_id: String) -> Element<'a, SmsMessage> {
     let Some(conv) = app.conversations.iter().find(|c| c.thread_id == thread_id) else {
@@ -203,7 +118,6 @@ pub(crate) fn view_thread<'a>(app: &'a SmsWindow, thread_id: String) -> Element<
         .width(Length::Fill)
         .height(Length::Fill)
         .center_x(Length::Fill)
-        .center_y(Length::Fill)
         .align_x(Horizontal::Center)
         .into()
 }
@@ -212,72 +126,71 @@ pub(crate) fn view_thread<'a>(app: &'a SmsWindow, thread_id: String) -> Element<
 pub fn view_contacts(app: &SmsWindow) -> Element<'_, SmsMessage> {
     let spacing = cosmic::theme::active().cosmic().spacing;
 
-    widget::container(widget::Column::new().push(contacts_header(app, &spacing)))
+    widget::container(
+        widget::Column::new()
+            .spacing(spacing.space_xxs)
+            .push(contacts_header(app))
+            .push(contacts_info(app)),
+    )
+        .padding(spacing.space_xxs)
+        .max_width(1000)
         .width(Length::Fill)
+        .height(Length::Fill)
+        .center_x(Length::Fill)
+        .align_x(Horizontal::Center)
         .into()
 }
 
 /// Contacts Tab
-pub fn contacts_header<'a>(
-    app: &'a SmsWindow,
-    spacing: &cosmic::cosmic_theme::Spacing,
-) -> Element<'a, SmsMessage> {
+pub fn contacts_header<'a>(app: &'a SmsWindow) -> Element<'a, SmsMessage> {
     widget::container(
-        widget::Column::new()
-            .push(
-                widget::search_input(fl!("sms-search-placeholder"), &app.search_query)
-                    .on_input(SmsMessage::UpdateSearch),
-            )
-            .push(contacts_searched_convs(app, spacing))
-            .push(
-                widget::search_input(fl!("sms-search-placeholder"), &app.search_query)
-                    .on_input(SmsMessage::UpdateSearch),
-            ),
+        widget::search_input(fl!("sms-new-chat-prompt"), &app.search_contact_query)
+            .on_input(SmsMessage::UpdateSearchContact),
     )
     .width(Length::Fill)
     .into()
 }
 
-fn contacts_searched_convs<'a>(
-    app: &'a SmsWindow,
-    spacing: &cosmic::cosmic_theme::Spacing,
-) -> Element<'a, SmsMessage> {
-    let mut filtered: Vec<_> = app
-        .conversations
+/// Filter contacts list with searched query
+/// Or return whole list
+fn filtered_contacts<'a>(app: &'a SmsWindow) -> Vec<(String, String)> {
+    app.contacts
         .iter()
-        .filter(|c| conversation_matches_search(app, c))
-        .collect();
+        .filter(|c| contact_match_query(c, &app.search_contact_query))
+        .map(|c| c.clone())
+        .collect()
+}
 
-    // Sort by timestamp (most recent first)
-    filtered.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+/// Check if given query result in any contact by number/name
+fn contact_match_query(contact: &(String, String), query: &str) -> bool {
+    contact.0.to_lowercase().contains(&query.to_lowercase())
+        || contact.1.to_lowercase().contains(&query.to_lowercase())
+}
 
-    let content = if filtered.is_empty() {
-        let msg = if app.search_query.is_empty() {
-            fl!("sms-no-conversations")
-        } else {
-            fl!("sms-no-matching-conversations")
-        };
+fn contacts_info<'a>(app: &'a SmsWindow) -> Element<'a, SmsMessage> {
+    let mut list = widget::list_column();
 
-        widget::container(widget::text(msg).size(14))
-            .width(Length::Fill)
-            .padding(spacing.space_xl)
-            .center_x(Length::Fill)
-    } else {
-        let mut list = widget::Column::new().spacing(0).padding(iced::Padding {
-            top: 0.0,
-            bottom: 0.0,
-            left: 0.0,
-            right: 10.0,
-        });
+    for contact in filtered_contacts(app) {
+        let mut section = widget::settings::section();
 
-        for conv in filtered {
-            list = list.push(view_conversation_item(app, conv, spacing));
-        }
+        let photo = get_contact_photo(app, &contact.0);
 
-        widget::container(widget::scrollable(list))
-    };
+        section = section.add(widget::settings::item_row(vec![
+            view_contact_avatar(photo, 42.0),
+            widget::Column::new()
+                .push(widget::text::caption_heading(
+                    get_contact_name(app, &contact.0).unwrap_or_default(),
+                ))
+                .push(widget::text::caption(contact.0.clone()))
+                .into(),
+            horizontal().into(),
+            widget::button::icon(widget::icon::from_name("mail-message-new-symbolic")).into(),
+        ]));
 
-    widget::container(content).into()
+        list = list.add(section);
+    }
+
+    widget::container(widget::scrollable(list)).into()
 }
 
 fn view_thread_header<'a>(
