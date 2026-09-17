@@ -112,7 +112,7 @@ sms-send = Odeslat
 
 # SMS new chat dialog
 sms-new-chat-title = Nová konverzace
-sms-new-chat-prompt = Zadejte telefonní číslo nebo jméno kontaktu:
+sms-new-chat-prompt = Zadejte telefonní číslo nebo jméno kontaktu
 sms-new-chat-contacts = Kontakty
 sms-new-chat-cancel = Zrušit
 sms-new-chat-start = Zahájit konverzaci

@@ -12,7 +12,7 @@ use crate::{
     GLOBAL_CONFIG,
     device::Device,
     event::{ConnectionEvent, CoreEvent},
-    filetransfer::{send_progress, TransferAdapter},
+    filetransfer::{TransferAdapter, send_progress},
     plugins::{
         self,
         battery::Battery,
@@ -112,10 +112,7 @@ impl PluginRegistry {
     ) {
         // Gate on plugin enabled state before doing any work.
         if let Some(plugin_id) = packet_plugin_id(&packet.packet_type) {
-            if !self
-                .is_plugin_enabled(&device.device_id.0, plugin_id)
-                .await
-            {
+            if !self.is_plugin_enabled(&device.device_id.0, plugin_id).await {
                 debug!(
                     "[plugin_registry] packet {:?} skipped — plugin '{}' disabled for {}",
                     packet.packet_type, plugin_id, device.device_id
@@ -245,7 +242,9 @@ impl PluginRegistry {
                 debug!("Parsed {} phone->name contact entries", contacts.len());
                 debug!(
                     "[contacts] {} vcards: {} photos decoded inline, {} referenced remote URLs (not fetched)",
-                    vcard_count, photos.len(), remote_photo_count
+                    vcard_count,
+                    photos.len(),
+                    remote_photo_count
                 );
                 if !contacts.is_empty() {
                     let _ = connection_tx.send(ConnectionEvent::ContactsReceived(contacts));
@@ -385,9 +384,9 @@ impl PluginRegistry {
                     tokio::spawn(async move {
                         match info.browse(&device_id.0, &device_name).await {
                             Ok(_) => {
-                                let _ = connection_tx.send(
-                                    ConnectionEvent::SftpMountStateChanged((device_id, true)),
-                                );
+                                let _ = connection_tx.send(ConnectionEvent::SftpMountStateChanged(
+                                    (device_id, true),
+                                ));
                             }
                             Err(e) => {
                                 warn!("[sftp] browse failed: {}", e);
@@ -553,7 +552,8 @@ fn decode_quoted_printable(input: &str) -> String {
     let mut out: Vec<u8> = Vec::with_capacity(bytes.len());
     let mut i = 0;
     while i < bytes.len() {
-        if bytes[i] == b'=' && i + 2 < bytes.len()
+        if bytes[i] == b'='
+            && i + 2 < bytes.len()
             && bytes[i + 1].is_ascii_hexdigit()
             && bytes[i + 2].is_ascii_hexdigit()
         {
@@ -626,9 +626,10 @@ fn extract_vcard_photo(prop_upper: &str, value: &str) -> VcardPhoto {
         }
     }
 
-    let has_base64_param = prop_upper.split(';').skip(1).any(|param| {
-        matches!(param, "BASE64" | "B" | "ENCODING=BASE64" | "ENCODING=B")
-    });
+    let has_base64_param = prop_upper
+        .split(';')
+        .skip(1)
+        .any(|param| matches!(param, "BASE64" | "B" | "ENCODING=BASE64" | "ENCODING=B"));
 
     if has_base64_param {
         let stripped: String = value.chars().filter(|c| !c.is_whitespace()).collect();

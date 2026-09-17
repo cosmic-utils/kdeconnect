@@ -88,8 +88,10 @@ static PA_CONNECTIONS: std::sync::LazyLock<Mutex<std::collections::HashMap<Strin
 
 impl SystemVolumeRequest {
     pub async fn handle(&self, device: &Device) {
-        info!("[systemvolume] handle called: request_sinks={:?} name={:?} volume={:?} muted={:?}",
-            self.request_sinks, self.name, self.volume, self.muted);
+        info!(
+            "[systemvolume] handle called: request_sinks={:?} name={:?} volume={:?} muted={:?}",
+            self.request_sinks, self.name, self.volume, self.muted
+        );
         let conn = {
             let map = PA_CONNECTIONS.lock().unwrap();
             map.get(&device.device_id.0).cloned()
@@ -349,9 +351,7 @@ fn enumerate_sinks(mainloop: &mut Mainloop, context: &Context) -> Option<Vec<Sin
     mainloop.lock();
     let introspect = context.introspect();
     let op = introspect.get_server_info(move |info| {
-        *default_sink_cb.lock().unwrap() = info.default_sink_name
-            .as_deref()
-            .map(|s| s.to_string());
+        *default_sink_cb.lock().unwrap() = info.default_sink_name.as_deref().map(|s| s.to_string());
     });
 
     if !wait_for_operation(mainloop, &op, 3) {
@@ -425,7 +425,13 @@ fn pa_sink_to_info(info: &PASinkInfo, default_sink: &Option<String>) -> Option<S
     let name = info.name.as_deref()?.to_string();
     let description = info.description.as_deref().unwrap_or(&name).to_string();
     let enabled = default_sink.as_deref() == Some(name.as_str());
-    info!("[systemvolume] sink '{}' volume={} max={} enabled={}", name, info.volume.avg().0, MAX_VOLUME, enabled);
+    info!(
+        "[systemvolume] sink '{}' volume={} max={} enabled={}",
+        name,
+        info.volume.avg().0,
+        MAX_VOLUME,
+        enabled
+    );
     Some(SinkInfo {
         name,
         description,
