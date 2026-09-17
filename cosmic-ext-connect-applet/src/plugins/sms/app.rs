@@ -1,6 +1,8 @@
 use async_stream::stream;
-use cosmic::iced::Length;
+use cosmic::iced::core::text::EllipsizeHeightLimit;
+use cosmic::iced::widget::rule::horizontal;
 use cosmic::iced::widget::scrollable;
+use cosmic::iced::{self, Length, Radius};
 use cosmic::widget::text_input::focus;
 use cosmic::widget::{nav_bar, segmented_button};
 use cosmic::{
@@ -86,9 +88,11 @@ impl Application for SmsWindow {
         let (device_id, device_name) = flags;
         info!("SMS window init device_id={}", device_id);
 
+        let nav_model = segmented_button::ModelBuilder::default().build();
+
         let mut app = Self {
             core,
-            nav_model: segmented_button::ModelBuilder::default().build(),
+            nav_model,
             active_tab: SmsTabActive::Contacts,
             device_id: device_id.clone(),
             device_name: device_name.clone(),
@@ -119,6 +123,162 @@ impl Application for SmsWindow {
         let title_task = app.set_window_title(title, app.core.main_window_id().unwrap());
 
         (app, title_task)
+    }
+
+    fn nav_bar(&self) -> Option<Element<'_, cosmic::Action<Self::Message>>> {
+        if !self.core().nav_bar_active() {
+            return None;
+        }
+
+        let cosmic::cosmic_theme::Spacing {
+            space_xxs, space_s, ..
+        } = cosmic::theme::spacing();
+
+        const MAX_WIDTH: u16 = 280;
+
+        let mut column = widget::column::with_capacity(self.nav_model.len())
+            .padding(space_s)
+            .max_width(MAX_WIDTH);
+
+        for entity in self.nav_model.iter() {
+            let Some(tab) = self.nav_model.data::<SmsTabActive>(entity) else {
+                continue;
+            };
+
+            let active = entity == self.nav_model.active();
+
+            let nav_btn_class = cosmic::theme::Button::Custom {
+                active: Box::new(move |_active, theme| -> widget::button::Style {
+                    let mut appearance = widget::button::Style::new();
+                    if !active {
+                        appearance.background =
+                            iced::Background::Color(iced::Color::TRANSPARENT).into()
+                    } else {
+                        appearance.background =
+                            iced::Background::Color(theme.cosmic().accent_color().into()).into()
+                    }
+                    appearance.border_radius = Radius::new(8.0);
+                    appearance
+                }),
+                hovered: Box::new(move |_active, theme| -> widget::button::Style {
+                    let mut appearance = widget::button::Style::new();
+                    if !active {
+                        appearance.background = iced::Background::Color(
+                            theme.cosmic().primary_component_color().into(),
+                        )
+                        .into();
+                    } else {
+                        appearance.background =
+                            iced::Background::Color(theme.cosmic().accent_color().into()).into()
+                    }
+                    appearance.border_radius = Radius::new(8.0);
+                    appearance
+                }),
+                pressed: Box::new(move |_active, theme| -> widget::button::Style {
+                    let mut appearance = widget::button::Style::new();
+
+                    if !active {
+                        appearance.background =
+                            iced::Background::Color(iced::Color::TRANSPARENT).into()
+                    } else {
+                        appearance.background =
+                            iced::Background::Color(theme.cosmic().accent_color().into()).into()
+                    }
+                    appearance.border_radius = Radius::new(8.0);
+                    appearance
+                }),
+                disabled: Box::new(move |_theme| -> widget::button::Style {
+                    let mut appearance = widget::button::Style::new();
+                    appearance.background =
+                        iced::Background::Color(iced::Color::TRANSPARENT).into();
+                    appearance.border_radius = Radius::new(8.0);
+                    appearance
+                }),
+            };
+
+            match tab {
+                SmsTabActive::Contacts => {
+                    column = column.push(
+                        widget::button::custom(
+                            widget::row::Row::new()
+                                .width(Length::Fill)
+                                .spacing(space_xxs)
+                                .padding(space_xxs)
+                                .align_y(iced::Alignment::Center)
+                                .push(
+                                    widget::icon(
+                                        widget::icon::from_name("contact-new-symbolic").handle(),
+                                    )
+                                    .size(42),
+                                )
+                                .push(
+                                    widget::text::caption_heading(fl!("sms-new-chat-contacts"))
+                                        .size(15.0)
+                                        .font(cosmic::font::bold()),
+                                ),
+                        )
+                        .class(nav_btn_class)
+                        .width(Length::Fill)
+                        .on_press(Action::Cosmic(cosmic::app::Action::NavBar(entity))),
+                    );
+
+                    column = column.push(horizontal(1))
+                }
+                SmsTabActive::Thread(conversation_data) => {
+                    let last_message = self
+                        .conversations
+                        .iter()
+                        .find(|c| c.thread_id == conversation_data.key)
+                        .map(|thread| thread.last_message.clone())
+                        .unwrap_or_default();
+
+                    column = column.push(
+                        widget::button::custom(
+                            widget::row::Row::new()
+                                .spacing(space_xxs)
+                                .padding(space_xxs)
+                                .align_y(iced::Alignment::Center)
+                                .push(
+                                    widget::icon(
+                                        widget::icon::from_name("contact-new-symbolic").handle(),
+                                    )
+                                    .size(42),
+                                )
+                                .push(widget::column(vec![
+                                    widget::text::caption_heading(
+                                        conversation_data.contact.clone(),
+                                    )
+                                    .ellipsize(iced::core::text::Ellipsize::End(
+                                        EllipsizeHeightLimit::Height(16.0),
+                                    ))
+                                    .size(15.0)
+                                    .into(),
+                                    widget::text::caption(last_message)
+                                        .ellipsize(iced::core::text::Ellipsize::End(
+                                            EllipsizeHeightLimit::Height(13.0),
+                                        ))
+                                        .size(12.0)
+                                        .into(),
+                                ])),
+                        )
+                        .class(nav_btn_class)
+                        .width(Length::Fill)
+                        .on_press(Action::Cosmic(cosmic::app::Action::NavBar(entity))),
+                    );
+                }
+            }
+        }
+
+        let mut nav = widget::container(
+            scrollable(column).width(Length::Fixed((MAX_WIDTH as f32) + (space_xxs as f32) * 2.0)),
+        )
+        .class(cosmic::theme::Container::Card);
+
+        if !self.core.is_condensed() {
+            nav = nav.max_width(MAX_WIDTH);
+        }
+
+        Some(nav.into())
     }
 
     fn nav_model(&self) -> Option<&nav_bar::Model> {
@@ -274,6 +434,9 @@ impl Application for SmsWindow {
         let mut tasks = vec![];
 
         match message {
+            SmsMessage::ActivateTab(tab) => {
+                self.active_tab = tab;
+            }
             SmsMessage::LoadConversations => {
                 let device_id = self.device_id.clone();
                 tasks.push(cosmic::task::future(async move {
@@ -690,6 +853,7 @@ impl SmsWindow {
             b.text(fl!("sms-new-chat-contacts"))
                 .icon(widget::icon::from_name("contact-new-symbolic"))
                 .data(SmsTabActive::Contacts)
+                .activate()
         });
 
         self.conversations
@@ -707,15 +871,14 @@ impl SmsWindow {
                 };
 
                 nav_model = nav_model.insert(|b| {
-                    b.text(data.contact.clone())
-                        .icon(widget::icon::from_name("contact-new-symbolic"))
+                    b.icon(widget::icon::from_name("contact-new-symbolic"))
+                        .text(data.contact.clone())
                         .data(SmsTabActive::Thread(data))
                 });
             }
         }
 
         self.nav_model = nav_model.build();
-
         self.nav_model.activate(previous_active);
     }
 

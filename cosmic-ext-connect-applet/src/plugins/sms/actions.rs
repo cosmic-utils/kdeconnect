@@ -15,6 +15,7 @@ use super::models::{Conversation, ProtocolEvent};
 /// All possible messages that the SMS window can receive and process.
 #[derive(Clone, Debug)]
 pub enum SmsMessage {
+    ActivateTab(SmsTabActive),
     LoadConversations,
     #[allow(dead_code)]
     ConversationsLoaded(Vec<Conversation>),
