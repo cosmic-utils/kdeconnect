@@ -1,6 +1,5 @@
 //! UI view implementations for the SMS window.
 
-use cosmic::iced::alignment::Horizontal::{self};
 use cosmic::iced::widget::scrollable;
 use cosmic::iced::{self, Alignment, Length};
 use cosmic::widget::space::horizontal;
@@ -115,10 +114,6 @@ pub(crate) fn view_thread<'a>(app: &'a SmsWindow, thread_id: String) -> Element<
     widget::container(content)
         .padding(spacing.space_xxs)
         .max_width(1000)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .center_x(Length::Fill)
-        .align_x(Horizontal::Center)
         .into()
 }
 
@@ -132,13 +127,11 @@ pub fn view_contacts(app: &SmsWindow) -> Element<'_, SmsMessage> {
             .push(contacts_header(app))
             .push(contacts_info(app)),
     )
-        .padding(spacing.space_xxs)
-        .max_width(1000)
-        .width(Length::Fill)
-        .height(Length::Fill)
-        .center_x(Length::Fill)
-        .align_x(Horizontal::Center)
-        .into()
+    .padding(spacing.space_xxs)
+    .max_width(1000)
+    .width(Length::Fill)
+    .height(Length::Fill)
+    .into()
 }
 
 /// Contacts Tab
