@@ -1,5 +1,4 @@
 use async_stream::stream;
-use cosmic::iced::core::text::EllipsizeHeightLimit;
 use cosmic::iced::widget::rule::horizontal;
 use cosmic::iced::widget::scrollable;
 use cosmic::iced::{self, Length, Radius};
@@ -20,13 +19,11 @@ use super::models::{Conversation, Message, MessageAttachment, ProtocolEvent};
 use super::utils;
 use super::views;
 use crate::plugins::sms::actions::SmsTabActive;
+use crate::plugins::sms::utils::{PREVIEW_MAX_CHARS, phone_numbers_match, truncate_message};
 use crate::plugins::sms::views::CONVERSATIONS_SEARCH_INPUT_ID;
 
-#[derive(Clone, Debug)]
-pub struct ConversationData {
-    key: String,
-    contact: String,
-}
+pub static CONTACTS_NAV_SCROLLABLE_ID: std::sync::LazyLock<cosmic::widget::Id> =
+    std::sync::LazyLock::new(cosmic::widget::Id::unique);
 
 pub struct SmsWindow {
     core: Core,
@@ -224,13 +221,28 @@ impl Application for SmsWindow {
 
                     column = column.push(horizontal(1))
                 }
-                SmsTabActive::Thread(conversation_data) => {
+                SmsTabActive::Thread(id) => {
                     let last_message = self
                         .conversations
                         .iter()
-                        .find(|c| c.thread_id == conversation_data.key)
+                        .find(|c| c.thread_id == *id)
                         .map(|thread| thread.last_message.clone())
                         .unwrap_or_default();
+
+                    let phone = self
+                        .conversations
+                        .iter()
+                        .find(|c| c.thread_id == *id)
+                        .map(|thread| thread.phone_number.clone())
+                        .unwrap_or_default();
+
+                    let name = self
+                        .conversations
+                        .iter()
+                        .find(|c| c.thread_id == *id)
+                        .map(|thread| thread.contact_name.clone())
+                        .and_then(|n| if n.is_empty() { Some(phone) } else { Some(n) })
+                        .unwrap();
 
                     column = column.push(
                         widget::button::custom(
@@ -245,20 +257,13 @@ impl Application for SmsWindow {
                                     .size(42),
                                 )
                                 .push(widget::column(vec![
-                                    widget::text::caption_heading(
-                                        conversation_data.contact.clone(),
-                                    )
-                                    .ellipsize(iced::core::text::Ellipsize::End(
-                                        EllipsizeHeightLimit::Height(16.0),
+                                    widget::text::caption_heading(name).size(15.0).into(),
+                                    widget::text::caption(truncate_message(
+                                        &last_message,
+                                        PREVIEW_MAX_CHARS,
                                     ))
-                                    .size(15.0)
+                                    .size(12.0)
                                     .into(),
-                                    widget::text::caption(last_message)
-                                        .ellipsize(iced::core::text::Ellipsize::End(
-                                            EllipsizeHeightLimit::Height(13.0),
-                                        ))
-                                        .size(12.0)
-                                        .into(),
                                 ])),
                         )
                         .class(nav_btn_class)
@@ -270,7 +275,9 @@ impl Application for SmsWindow {
         }
 
         let mut nav = widget::container(
-            scrollable(column).width(Length::Fixed((MAX_WIDTH as f32) + (space_xxs as f32) * 2.0)),
+            scrollable(column)
+                .id(CONTACTS_NAV_SCROLLABLE_ID.clone())
+                .width(Length::Fixed((MAX_WIDTH as f32) + (space_xxs as f32) * 2.0)),
         )
         .class(cosmic::theme::Container::Card);
 
@@ -297,10 +304,8 @@ impl Application for SmsWindow {
                 SmsTabActive::Contacts => {
                     return Task::none();
                 }
-                SmsTabActive::Thread(conversation_data) => {
-                    return Task::done(Action::App(SmsMessage::SelectThread(
-                        conversation_data.key.clone(),
-                    )));
+                SmsTabActive::Thread(id) => {
+                    return Task::done(Action::App(SmsMessage::SelectThread(id.clone())));
                 }
             }
         }
@@ -434,7 +439,20 @@ impl Application for SmsWindow {
         let mut tasks = vec![];
 
         match message {
-            SmsMessage::ActivateTab(tab) => {
+            SmsMessage::ActivateTab((tab, position)) => {
+                if let Some(pos) = position {
+                    self.nav_model.activate_position(pos);
+
+                    let offset_y = pos as f32 / self.nav_model.len() as f32;
+
+                    tasks.push(scrollable::snap_to(
+                        CONTACTS_NAV_SCROLLABLE_ID.clone(),
+                        scrollable::RelativeOffset {
+                            x: Some(0.0),
+                            y: Some(offset_y),
+                        },
+                    ));
+                }
                 self.active_tab = tab;
             }
             SmsMessage::LoadConversations => {
@@ -573,6 +591,7 @@ impl Application for SmsWindow {
             }
             SmsMessage::SelectThread(thread_id) => {
                 debug!("SelectThread: {}", thread_id);
+
                 if let Some(conv) = self.conversations.iter().find(|c| c.thread_id == thread_id) {
                     self.last_seen_timestamp
                         .insert(thread_id.clone(), conv.timestamp);
@@ -585,9 +604,11 @@ impl Application for SmsWindow {
                 let device_id2 = device_id.clone();
                 let last_seen = self.last_seen_timestamp.clone();
 
-                return Task::batch([
+                let thid = thread_id.clone();
+
+                let tasks = vec![
                     cosmic::task::future(async move {
-                        dbus::request_conversation_messages(&device_id, &thread_id).await;
+                        dbus::request_conversation_messages(&device_id, &thid).await;
                         Action::App(SmsMessage::RefreshThread)
                     }),
                     cosmic::task::future(async move {
@@ -602,7 +623,13 @@ impl Application for SmsWindow {
                             y: Some(0.0),
                         },
                     ),
-                ]);
+                ];
+
+                if !self.search_contact_query.is_empty() {
+                    self.search_contact_query.clear();
+                }
+
+                return Task::batch(tasks);
             }
             SmsMessage::UpdateInput(input) => {
                 self.message_input = input;
@@ -745,24 +772,22 @@ impl Application for SmsWindow {
                 );
                 self.handle_protocol_event(event);
             }
-            SmsMessage::OpenNewChatDialog => {
-                self.show_new_chat_dialog = true;
-            }
-            SmsMessage::CloseNewChatDialog => {
-                self.show_new_chat_dialog = false;
-                self.new_chat_phone_input.clear();
-            }
-            SmsMessage::UpdateNewChatPhone(phone) => {
-                self.new_chat_phone_input = phone;
-            }
-            SmsMessage::SelectContactForNewChat(idx) => {
-                self.new_chat_phone_input = self.contacts[idx].0.clone();
-                self.contact_idx = Some(idx);
-            }
-            SmsMessage::CreateNewChat => {
-                let phone = self.new_chat_phone_input.trim().to_string();
-                if !phone.is_empty() {
+            SmsMessage::Chatting(phone) => {
+                let conv_exist = self
+                    .conversations
+                    .iter()
+                    .find(|c| phone_numbers_match(&c.phone_number, &phone))
+                    .is_some();
+
+                let thread_id = self
+                    .conversations
+                    .iter()
+                    .find(|c| phone_numbers_match(&c.phone_number, &phone))
+                    .map(|c| c.thread_id.clone());
+
+                if !conv_exist {
                     let thread_id = format!("new_{}", utils::now_millis());
+
                     self.conversations.insert(
                         0,
                         Conversation {
@@ -774,14 +799,30 @@ impl Application for SmsWindow {
                             unread: false,
                         },
                     );
-                    self.show_new_chat_dialog = false;
-                    self.new_chat_phone_input.clear();
-                    tasks.push(cosmic::task::message(Action::App(
-                        SmsMessage::SelectThread(thread_id),
-                    )));
-                }
+
+                    return cosmic::task::future(async move {
+                        Action::App(SmsMessage::ActivateTab((
+                            SmsTabActive::Thread(thread_id),
+                            Some(1),
+                        )))
+                    });
+                };
+
+                let Some(id) = thread_id else {
+                    return Task::none();
+                };
+                let chat_idx = self.conversations.iter().position(|c| c.thread_id == id);
+
+                tasks.push(cosmic::task::message(Action::App(
+                    SmsMessage::SelectThread(id.clone()),
+                )));
+
+                if let Some(idx) = chat_idx {
+                    tasks.push(cosmic::task::message(Action::App(SmsMessage::ActivateTab(
+                        (SmsTabActive::Thread(id.clone()), Some(idx as u16 + 1)),
+                    ))));
+                };
             }
-            SmsMessage::CloseWindow => std::process::exit(0),
             SmsMessage::ToggleEmojiPicker => {
                 self.show_emoji_picker = !self.show_emoji_picker;
             }
@@ -833,9 +874,7 @@ impl Application for SmsWindow {
     fn view(&self) -> Element<'_, Self::Message> {
         let content = match &self.active_tab {
             SmsTabActive::Contacts => views::view_contacts(self),
-            SmsTabActive::Thread(conversation_data) => {
-                views::view_thread(self, conversation_data.key.clone())
-            }
+            SmsTabActive::Thread(tdid) => views::view_thread(self, tdid.clone()),
         };
 
         widget::container(content).center_x(Length::Fill).into()
@@ -849,32 +888,15 @@ impl SmsWindow {
         let mut nav_model = segmented_button::ModelBuilder::default();
 
         // show contacts button
-        nav_model = nav_model.insert(|b| {
-            b.text(fl!("sms-new-chat-contacts"))
-                .icon(widget::icon::from_name("contact-new-symbolic"))
-                .data(SmsTabActive::Contacts)
-                .activate()
-        });
+        nav_model = nav_model.insert(|b| b.data(SmsTabActive::Contacts).activate());
 
         self.conversations
             .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
         if !self.conversations.is_empty() {
             for conv in &self.conversations {
-                let data = ConversationData {
-                    key: conv.thread_id.clone(),
-                    contact: if !conv.contact_name.is_empty() {
-                        conv.contact_name.clone()
-                    } else {
-                        conv.phone_number.clone()
-                    },
-                };
-
-                nav_model = nav_model.insert(|b| {
-                    b.icon(widget::icon::from_name("contact-new-symbolic"))
-                        .text(data.contact.clone())
-                        .data(SmsTabActive::Thread(data))
-                });
+                nav_model =
+                    nav_model.insert(|b| b.data(SmsTabActive::Thread(conv.thread_id.clone())));
             }
         }
 

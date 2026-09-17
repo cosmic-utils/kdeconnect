@@ -6,31 +6,13 @@ use cosmic::widget::space::horizontal;
 use cosmic::widget::{self};
 use cosmic::{Element, font, theme};
 
+use crate::plugins::sms::utils::normalize_phone_number;
+
 use super::actions::SmsMessage;
 use super::app::SmsWindow;
 use super::emoji::{EmojiCategory, is_emoji_char};
 use super::models::Conversation;
 use super::utils::{format_timestamp, phone_numbers_match};
-
-/// Max characters shown in the conversation-list preview before truncating
-/// with an ellipsis, so every row takes up the same amount of space
-/// regardless of how long the underlying message actually is.
-const PREVIEW_MAX_CHARS: usize = 50;
-
-/// Truncates by character count (not bytes, so multi-byte emoji aren't cut
-/// mid-codepoint) and appends an ellipsis if anything was cut. Doesn't try
-/// to avoid splitting multi-codepoint emoji sequences (e.g. ZWJ-joined
-/// family emoji) right at the boundary — a rare, low-stakes cosmetic edge
-/// case for a preview string, not worth pulling in a grapheme-segmentation
-/// dependency for.
-fn truncate_preview(s: &str, max_chars: usize) -> String {
-    if s.chars().count() <= max_chars {
-        return s.to_string();
-    }
-    let mut truncated: String = s.chars().take(max_chars).collect();
-    truncated.push('…');
-    truncated
-}
 
 /// Renders text as one paragraph made of spans, switching to `EMOJI_FONT`
 /// only for characters classified as emoji so they get a font with color
@@ -174,10 +156,12 @@ fn contacts_info<'a>(app: &'a SmsWindow) -> Element<'a, SmsMessage> {
                 .push(widget::text::caption_heading(
                     get_contact_name(app, &contact.0).unwrap_or_default(),
                 ))
-                .push(widget::text::caption(contact.0.clone()))
+                .push(widget::text::caption(normalize_phone_number(&contact.0)))
                 .into(),
             horizontal().into(),
-            widget::button::icon(widget::icon::from_name("mail-message-new-symbolic")).into(),
+            widget::button::icon(widget::icon::from_name("mail-message-new-symbolic"))
+                .on_press(SmsMessage::Chatting(contact.0.clone()))
+                .into(),
         ]));
 
         list = list.add(section);

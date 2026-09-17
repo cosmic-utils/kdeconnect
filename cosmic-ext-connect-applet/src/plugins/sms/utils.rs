@@ -6,6 +6,26 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
+/// Max characters shown in the conversation-list preview before truncating
+/// with an ellipsis, so every row takes up the same amount of space
+/// regardless of how long the underlying message actually is.
+pub const PREVIEW_MAX_CHARS: usize = 25;
+
+/// Truncates by character count (not bytes, so multi-byte emoji aren't cut
+/// mid-codepoint) and appends an ellipsis if anything was cut. Doesn't try
+/// to avoid splitting multi-codepoint emoji sequences (e.g. ZWJ-joined
+/// family emoji) right at the boundary — a rare, low-stakes cosmetic edge
+/// case for a preview string, not worth pulling in a grapheme-segmentation
+/// dependency for.
+fn truncate_preview(s: &str, max_chars: usize) -> String {
+    if s.chars().count() <= max_chars {
+        return s.to_string();
+    }
+    let mut truncated: String = s.chars().take(max_chars).collect();
+    truncated.push('…');
+    truncated
+}
+
 /// Formats a Unix timestamp (in milliseconds) to a human-readable relative time.
 pub fn format_timestamp(timestamp: i64) -> String {
     let now = SystemTime::now()
