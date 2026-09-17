@@ -6,8 +6,6 @@
 
 use std::collections::HashMap;
 
-use crate::plugins::sms::app::ConversationData;
-
 use super::avatar::Avatar;
 use super::emoji::EmojiCategory;
 use super::models::{Conversation, ProtocolEvent};
@@ -15,7 +13,7 @@ use super::models::{Conversation, ProtocolEvent};
 /// All possible messages that the SMS window can receive and process.
 #[derive(Clone, Debug)]
 pub enum SmsMessage {
-    ActivateTab(SmsTabActive),
+    ActivateTab((SmsTabActive, Option<u16>)),
     LoadConversations,
     #[allow(dead_code)]
     ConversationsLoaded(Vec<Conversation>),
@@ -38,14 +36,10 @@ pub enum SmsMessage {
     ScrolltoMessage(usize),
     SendMessage,
     RefreshThread,
-    #[allow(dead_code)]
-    CloseWindow,
+
     ProtocolEventReceived(ProtocolEvent),
-    OpenNewChatDialog,
-    CloseNewChatDialog,
-    UpdateNewChatPhone(String),
-    SelectContactForNewChat(usize),
-    CreateNewChat,
+
+    Chatting(String),
 
     // Emoji picker
     ToggleEmojiPicker,
@@ -88,5 +82,5 @@ pub enum SmsMessage {
 #[derive(Clone, Debug)]
 pub enum SmsTabActive {
     Contacts,
-    Thread(ConversationData),
+    Thread(String),
 }
