@@ -374,27 +374,31 @@ impl Application for SettingsApp {
                 if let Some(sel) = self.selected_device.clone() {
                     // Clear selection if the device is gone or no longer paired.
                     let still_paired = devices.iter().any(|d| d.id == sel && d.is_paired);
-
                     if !still_paired {
                         self.plugin_states.remove(&sel);
                         self.selected_device = None;
                     }
                 }
-
+                let prev = self.selected_device.clone();
                 if self.selected_device.is_none() {
                     self.selected_device =
                         devices.iter().find(|d| d.is_paired).map(|d| d.id.clone());
                 }
-
                 for d in &devices {
                     if d.is_paired {
                         self.pairing_in_progress.remove(&d.id);
                     }
                 }
-
                 self.devices = devices;
 
                 self.update_nav_model();
+
+                // Load plugin states if we auto-selected a new device
+                if self.selected_device != prev {
+                    if let Some(did) = self.selected_device.clone() {
+                        return Self::load_plugin_states_task(did);
+                    }
+                }
             }
 
             Message::PluginStatesLoaded(device_id, disabled) => {
@@ -416,6 +420,7 @@ impl Application for SettingsApp {
 
                     let did = device_id.clone();
                     let pid = plugin_id;
+
                     return Task::perform(
                         async move {
                             if let Err(e) = backend::set_plugin_enabled(did, pid, enabled).await {
@@ -428,7 +433,6 @@ impl Application for SettingsApp {
             }
 
             Message::Refresh => {
-                self.update_nav_model();
                 return Self::refresh_devices_task();
             }
 
@@ -667,7 +671,7 @@ impl SettingsApp {
 
         if !self.devices.is_empty() {
             for d in &self.devices {
-                if d.is_paired && d.is_reachable {
+                if d.is_paired {
                     nav_model = nav_model.insert(|b| {
                         b.divider_above()
                             .icon(widget::icon::from_name("smartphone-symbolic"))
