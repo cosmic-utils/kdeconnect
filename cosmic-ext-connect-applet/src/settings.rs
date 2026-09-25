@@ -572,7 +572,7 @@ impl Application for SettingsApp {
                 QuickMessages::UmountDevice(id) => {
                     let id = id.clone();
                     return Task::perform(
-                        async move { backend::browse_device_filesystem(id).await },
+                        async move { backend::unmount_device(id).await },
                         |result| match result {
                             Ok(()) => cosmic::action::app(Message::Refresh),
                             Err(e) => {
