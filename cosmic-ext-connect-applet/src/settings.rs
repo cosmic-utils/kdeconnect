@@ -3,7 +3,6 @@ extern crate cosmic_ext_connect_applet;
 
 use cosmic::cosmic_config::{ConfigGet, ConfigSet};
 use cosmic::widget::nav_bar;
-use cosmic::widget::segmented_button::Entity;
 use cosmic::widget::space::horizontal;
 use cosmic::{
     Action, Application, ApplicationExt, Element, Task,
@@ -274,13 +273,7 @@ impl Application for SettingsApp {
     }
 
     fn init(core: Core, _flags: Self::Flags) -> (Self, Task<Action<Self::Message>>) {
-        let mut nav = nav_bar::Model::default();
-
-        nav.insert()
-            .text(fl!("settings-tab-available"))
-            .data::<Tab>(Tab::AvailableDevices)
-            .icon(widget::icon::from_name("list-add-symbolic"))
-            .activate();
+        let nav = nav_bar::Model::default();
 
         let mut app = Self {
             core,
@@ -297,6 +290,8 @@ impl Application for SettingsApp {
         };
 
         app.core.window.header_title = fl!("settings-title").into();
+
+        app.update_nav_model();
 
         let title_task =
             app.set_window_title(fl!("settings-title"), app.core.main_window_id().unwrap());
@@ -399,32 +394,7 @@ impl Application for SettingsApp {
 
                 self.devices = devices;
 
-                let nav_entities: Vec<Entity> = self.nav.iter().map(|e| e).collect();
-
-                for entity in nav_entities {
-                    match self.nav.data::<Tab>(entity.clone()) {
-                        Some(tab) => {
-                            match tab {
-                                Tab::DeviceProfile(_) => self.nav.remove(entity.clone()),
-                                _ => {}
-                            };
-                        }
-                        None => {
-                            continue;
-                        }
-                    };
-                }
-
-                for d in &self.devices {
-                    if d.is_paired && d.is_reachable {
-                        self.nav
-                            .insert()
-                            .divider_above(true)
-                            .icon(widget::icon::from_name("smartphone-symbolic"))
-                            .text(d.name.clone())
-                            .data::<Tab>(Tab::DeviceProfile(d.id.clone()));
-                    }
-                }
+                self.update_nav_model();
             }
 
             Message::PluginStatesLoaded(device_id, disabled) => {
@@ -458,6 +428,7 @@ impl Application for SettingsApp {
             }
 
             Message::Refresh => {
+                self.update_nav_model();
                 return Self::refresh_devices_task();
             }
 
@@ -682,6 +653,35 @@ impl Application for SettingsApp {
 // ---------------------------------------------------------------------------
 
 impl SettingsApp {
+    fn update_nav_model(&mut self) {
+        let previous_active = self.nav.active();
+
+        let mut nav_model = widget::segmented_button::ModelBuilder::default();
+
+        nav_model = nav_model.insert(|b| {
+            b.text(fl!("settings-tab-available"))
+                .data::<Tab>(Tab::AvailableDevices)
+                .icon(widget::icon::from_name("list-add-symbolic"))
+                .activate()
+        });
+
+        if !self.devices.is_empty() {
+            for d in &self.devices {
+                if d.is_paired && d.is_reachable {
+                    nav_model = nav_model.insert(|b| {
+                        b.divider_above()
+                            .icon(widget::icon::from_name("smartphone-symbolic"))
+                            .text(d.name.clone())
+                            .data::<Tab>(Tab::DeviceProfile(d.id.clone()))
+                    });
+                }
+            }
+        };
+
+        self.nav = nav_model.build();
+        self.nav.activate(previous_active);
+    }
+
     fn view_plugin_panel_quick_actions<'a>(
         &'a self,
         device: &Device,
