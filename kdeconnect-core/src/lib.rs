@@ -21,17 +21,17 @@ use crate::{
 
 pub mod config;
 pub mod contacts;
-pub mod plugin_config;
-pub mod hidden_conversations;
-pub mod sms_read_state;
 pub(crate) mod crypto;
 pub mod device;
 pub mod event;
 pub mod filetransfer;
+pub mod hidden_conversations;
 pub(crate) mod pairing;
+pub mod plugin_config;
 pub(crate) mod plugin_interface;
 pub mod plugins;
 pub(crate) mod protocol;
+pub mod sms_read_state;
 pub(crate) mod transport;
 
 // Re-export commonly used protocol types for external crates
@@ -121,10 +121,7 @@ impl KdeConnectCore {
     pub async fn run_event_loop(&mut self) {
         info!("Starting KdeConnect event loop");
 
-        plugins::mpris::monitor_mpris(
-            (*self.device_manager).clone(),
-            self.event_tx.clone(),
-        );
+        plugins::mpris::monitor_mpris((*self.device_manager).clone(), self.event_tx.clone());
 
         loop {
             select! {
@@ -204,12 +201,11 @@ impl KdeConnectCore {
                     if let Some(sender) = guard.get(&device_id) {
                         let mpris_pkt = ProtocolPacket::new(
                             PacketType::MprisRequest,
-                            serde_json::to_value(
-                                crate::plugins::mpris::MprisRequest {
-                                    request_player_list: Some(true),
-                                    ..Default::default()
-                                }
-                            ).unwrap(),
+                            serde_json::to_value(crate::plugins::mpris::MprisRequest {
+                                request_player_list: Some(true),
+                                ..Default::default()
+                            })
+                            .unwrap(),
                         );
                         let _ = sender.send(mpris_pkt);
                     }
@@ -304,8 +300,12 @@ impl KdeConnectCore {
                     // Send our local command list so the Android app shows
                     // the Run Command option (requires canAddCommand: true).
                     plugins::run_command::send_command_list(&id, self.event_tx.clone()).await;
-                    
-                    if self.plugin_registry.is_plugin_enabled(&id.0, "systemvolume").await {
+
+                    if self
+                        .plugin_registry
+                        .is_plugin_enabled(&id.0, "systemvolume")
+                        .await
+                    {
                         plugins::systemvolume::on_device_connect(id.clone(), self.event_tx.clone());
                     }
                 }
@@ -329,9 +329,15 @@ impl KdeConnectCore {
                                     // user can still initiate pairing normally from the settings app.
                                     self.pending_pair.lock().await.remove(&id);
                                     if device.pair_state == crate::device::PairState::Paired {
-                                        info!("[core] Phone unpairing from us — cleaning up {}", id);
+                                        info!(
+                                            "[core] Phone unpairing from us — cleaning up {}",
+                                            id
+                                        );
                                         self.device_manager
-                                            .update_pair_state(&id, crate::device::PairState::NotPaired)
+                                            .update_pair_state(
+                                                &id,
+                                                crate::device::PairState::NotPaired,
+                                            )
                                             .await;
                                         cleanup_device_data(&id.0).await;
                                         let conn_event = ConnectionEvent::PairStateChanged((
@@ -340,7 +346,10 @@ impl KdeConnectCore {
                                         ));
                                         self.broadcast_conn_event(conn_event);
                                     } else {
-                                        info!("[core] pair:false from {} — device not paired, ignoring", id);
+                                        info!(
+                                            "[core] pair:false from {} — device not paired, ignoring",
+                                            id
+                                        );
                                     }
                                 } else {
                                     let device_name = device.name.clone();
@@ -601,7 +610,10 @@ impl KdeConnectCore {
                 // The phone processes capabilities only during connection setup.
                 if guard.remove(&device_id).is_some() {
                     self.conn_id_map.lock().await.remove(&device_id);
-                    info!("[plugin] dropped connection to {} — phone will reconnect with updated capabilities", device_id);
+                    info!(
+                        "[plugin] dropped connection to {} — phone will reconnect with updated capabilities",
+                        device_id
+                    );
                 }
             }
         };
@@ -645,7 +657,11 @@ async fn cleanup_device_data(device_id: &str) {
             .join(format!("{}_plugins.json", device_id));
         if let Err(e) = tokio::fs::remove_file(&plugin_file).await {
             if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!("[cleanup] failed to remove plugin config for {}: {}", device_id, e);
+                tracing::warn!(
+                    "[cleanup] failed to remove plugin config for {}: {}",
+                    device_id,
+                    e
+                );
             }
         }
     }
@@ -655,7 +671,11 @@ async fn cleanup_device_data(device_id: &str) {
         let cache_dir = data_dir.join("kdeconnect").join(device_id);
         if let Err(e) = tokio::fs::remove_dir_all(&cache_dir).await {
             if e.kind() != std::io::ErrorKind::NotFound {
-                tracing::warn!("[cleanup] failed to remove cache dir for {}: {}", device_id, e);
+                tracing::warn!(
+                    "[cleanup] failed to remove cache dir for {}: {}",
+                    device_id,
+                    e
+                );
             }
         }
     }

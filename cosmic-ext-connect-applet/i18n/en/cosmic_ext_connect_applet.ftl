@@ -1,5 +1,6 @@
 # Applet header
 applet-title = Cosmic Ext Connect
+applet-description = KDE Connect implementation for the COSMIC desktop
 applet-settings = Settings
 
 # Pairing
@@ -22,15 +23,15 @@ quick-actions-header = Quick Actions
 quick-actions-ping = Ping
 quick-actions-find-phone = Find my phone
 quick-actions-share-clipboard = Share clipboard
-quick-actions-sms = SMS Messages
+quick-actions-sms = SMS Messages…
 quick-actions-files-header = Files
-quick-actions-send-file = Send file
-quick-actions-browse-device = Browse device
+quick-actions-send-file = Send file…
+quick-actions-browse-device = Browse device…
 quick-actions-unmount-device = Unmount device
 quick-actions-run-commands-header = Run Commands
 
 # Run Command management (settings)
-run-commands-manage-header = Commands (triggered from phone)
+run-commands-manage-header = Commands
 run-commands-add-header = Add New Command
 run-commands-name-placeholder = Name (e.g. Lock Screen)
 run-commands-command-placeholder = Shell command (e.g. loginctl lock-session)
@@ -40,8 +41,9 @@ run-commands-delete = Delete
 # Settings window
 settings-title = KDE Connect Settings
 settings-tab-paired = Paired Devices
-settings-tab-available = Available Devices
+settings-tab-available = Pair New Device
 settings-scan-again = Scan Again
+settings-device-profile = Device Profile
 
 # Paired devices tab
 paired-devices-header = Paired Devices
@@ -112,7 +114,7 @@ sms-send = Send
 
 # SMS new chat dialog
 sms-new-chat-title = Start New Chat
-sms-new-chat-prompt = Enter phone number or contact name:
+sms-new-chat-prompt = Enter phone number or contact name
 sms-new-chat-contacts = Contacts
 sms-new-chat-cancel = Cancel
 sms-new-chat-start = Start Chat

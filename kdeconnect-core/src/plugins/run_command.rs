@@ -85,7 +85,10 @@ impl RunCommand {
             match serde_json::from_str(&self.command_list) {
                 Ok(map) => map,
                 Err(e) => {
-                    warn!("[runcommand] failed to parse commandList from {}: {}", device.device_id, e);
+                    warn!(
+                        "[runcommand] failed to parse commandList from {}: {}",
+                        device.device_id, e
+                    );
                     return;
                 }
             };
@@ -136,10 +139,7 @@ impl RunCommandRequest {
             // Phone is asking us to execute a local command by its UUID key.
             let commands = load_local_commands();
             if let Some(cmd) = commands.iter().find(|c| c.id == *key) {
-                info!(
-                    "[runcommand] executing '{}': {}",
-                    cmd.name, cmd.command
-                );
+                info!("[runcommand] executing '{}': {}", cmd.name, cmd.command);
                 let result = if std::env::var("FLATPAK_ID").is_ok() {
                     std::process::Command::new("flatpak-spawn")
                         .arg("--host")
@@ -153,8 +153,7 @@ impl RunCommandRequest {
                         .arg(&cmd.command)
                         .spawn()
                 };
-                if let Err(e) = result
-                {
+                if let Err(e) = result {
                     warn!("[runcommand] failed to spawn '{}': {}", cmd.name, e);
                 }
             } else {
@@ -194,8 +193,8 @@ pub async fn send_command_list(
             serde_json::json!({ "name": cmd.name, "command": cmd.command }),
         );
     }
-    let command_list_str = serde_json::to_string(&serde_json::Value::Object(map))
-        .unwrap_or_else(|_| "{}".to_string());
+    let command_list_str =
+        serde_json::to_string(&serde_json::Value::Object(map)).unwrap_or_else(|_| "{}".to_string());
 
     info!(
         "[runcommand] sending {} command(s) to {}",
