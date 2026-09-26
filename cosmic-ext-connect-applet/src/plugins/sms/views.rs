@@ -673,17 +673,3 @@ fn get_current_conversation_phone(app: &SmsWindow) -> Option<String> {
         .find(|c| c.thread_id == *thread_id)
         .map(|c| c.phone_number.clone())
 }
-
-/// True if this conversation should show the unread indicator. Once a
-/// thread has been opened in this app session, the phone's own read flag
-/// is ignored in favor of comparing against the last message timestamp
-/// the user actually saw — there's no protocol way to write "read" back
-/// to the phone, so mirroring its flag forever would mean the badge never
-/// clears just because you read it here. For threads never opened this
-/// session, falls back to the phone-reported flag as a reasonable guess.
-fn is_conversation_unread(app: &SmsWindow, conv: &Conversation) -> bool {
-    match app.last_seen_timestamp.get(&conv.thread_id) {
-        Some(&seen_at) => conv.timestamp > seen_at,
-        None => conv.unread,
-    }
-}
