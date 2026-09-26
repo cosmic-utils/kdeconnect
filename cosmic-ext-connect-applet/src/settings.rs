@@ -1027,7 +1027,7 @@ impl SettingsApp {
 
                     let cmd_col = widget::Column::new()
                         .width(Length::Fill)
-                        .push(widget::text::caption_heading(name).font(cosmic::font::bold()))
+                        .push(widget::text(name).font(cosmic::font::bold()))
                         .push(widget::text::caption(command));
 
                     section = section.add(widget::settings::item_row(vec![
