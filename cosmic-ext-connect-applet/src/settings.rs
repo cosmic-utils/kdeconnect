@@ -190,6 +190,7 @@ pub enum Message {
     // Run Quick Action
     RunQuickAction(QuickMessages),
     BrowseDeviceFailed(String),
+    BrowseDeviceMounted,
     // Run Command management
     OpenDeviceProfile,
     OpenCommandsTab,
@@ -566,7 +567,7 @@ impl Application for SettingsApp {
                     return Task::perform(
                         async move { backend::browse_device_filesystem(id).await },
                         |result| match result {
-                            Ok(()) => cosmic::action::app(Message::Refresh),
+                            Ok(()) => cosmic::action::app(Message::BrowseDeviceMounted),
                             Err(e) => {
                                 cosmic::action::app(Message::BrowseDeviceFailed(e.to_string()))
                             }
@@ -588,6 +589,17 @@ impl Application for SettingsApp {
             },
             Message::BrowseDeviceFailed(failure) => {
                 self.message_banner = Some(failure);
+            }
+            Message::BrowseDeviceMounted => {
+                return Task::perform(
+                    async move {
+                        // dirty workaround for refresh device mount state
+                        // if we don't wait, the icon and the text of quick action button
+                        // does not change
+                        let _ = tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+                    },
+                    |_| Action::App(Message::Refresh),
+                );
             }
             Message::DismissError => {
                 self.message_banner = None;
@@ -746,18 +758,21 @@ impl SettingsApp {
                 "document-send-symbolic",
                 fl!("quick-actions-send-file"),
                 Message::RunQuickAction(QuickMessages::SendFiles(device.id.to_string())),
-            ))
-        };
-        // browse device
-        if self.plugin_enabled("share") {
+            ));
+
+            // browse device
             buttons.push(quick_action_button(
-                if !(device.is_mounted) {
+                if !device.is_mounted {
                     "folder-symbolic"
                 } else {
                     "folder-open-symbolic"
                 },
-                fl!("quick-actions-browse-device"),
-                if !(device.is_mounted) {
+                if !device.is_mounted {
+                    fl!("quick-actions-browse-device")
+                } else {
+                    fl!("quick-actions-unmount-device")
+                },
+                if !device.is_mounted {
                     Message::RunQuickAction(QuickMessages::BrowseDevice(device.id.to_string()))
                 } else {
                     Message::RunQuickAction(QuickMessages::UmountDevice(device.id.to_string()))
