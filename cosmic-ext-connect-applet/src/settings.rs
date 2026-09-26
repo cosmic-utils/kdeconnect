@@ -720,6 +720,7 @@ impl SettingsApp {
             };
 
         let mut buttons: Vec<Element<'a, Message>> = vec![];
+
         // ping
         if self.plugin_enabled("ping") {
             buttons.push(quick_action_button(
@@ -869,7 +870,9 @@ impl SettingsApp {
                     );
                 };
 
-                col = col.push(self.view_plugin_panel_quick_actions(&device, spacing));
+                if device.is_reachable {
+                    col = col.push(self.view_plugin_panel_quick_actions(&device, spacing));
+                }
                 col = col.push(widget::divider::horizontal::default());
 
                 if self.selected_device.is_none() {
