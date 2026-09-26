@@ -22,7 +22,7 @@ use crate::plugins::sms::actions::SmsTabActive;
 use crate::plugins::sms::utils::{PREVIEW_MAX_CHARS, phone_numbers_match, truncate_message};
 use crate::plugins::sms::views::CONVERSATIONS_SEARCH_INPUT_ID;
 
-pub static CONTACTS_NAV_SCROLLABLE_ID: std::sync::LazyLock<cosmic::widget::Id> =
+pub static NAV_BAR_SCROLLABLE_ID: std::sync::LazyLock<cosmic::widget::Id> =
     std::sync::LazyLock::new(cosmic::widget::Id::unique);
 
 pub struct SmsWindow {
@@ -222,6 +222,12 @@ impl Application for SmsWindow {
                     column = column.push(horizontal(1))
                 }
                 SmsTabActive::Thread(id) => {
+                    let unread = self
+                        .conversations
+                        .iter()
+                        .find(|c| c.thread_id == *id)
+                        .is_some_and(|c| self.is_conversation_unread(c));
+
                     let last_message = self
                         .conversations
                         .iter()
@@ -244,6 +250,14 @@ impl Application for SmsWindow {
                         .and_then(|n| if n.is_empty() { Some(phone) } else { Some(n) })
                         .unwrap();
 
+                    let name_widget = if unread {
+                        widget::text::text(name)
+                            .size(15.0)
+                            .font(cosmic::font::bold())
+                    } else {
+                        widget::text::text(name).size(15.0)
+                    };
+
                     column = column.push(
                         widget::button::custom(
                             widget::row::Row::new()
@@ -257,7 +271,7 @@ impl Application for SmsWindow {
                                     .size(42),
                                 )
                                 .push(widget::column(vec![
-                                    widget::text::caption_heading(name).size(15.0).into(),
+                                    name_widget.into(),
                                     widget::text::caption(truncate_message(
                                         &last_message,
                                         PREVIEW_MAX_CHARS,
@@ -276,7 +290,7 @@ impl Application for SmsWindow {
 
         let mut nav = widget::container(
             scrollable(column)
-                .id(CONTACTS_NAV_SCROLLABLE_ID.clone())
+                .id(NAV_BAR_SCROLLABLE_ID.clone())
                 .width(Length::Fixed((MAX_WIDTH as f32) + (space_xxs as f32) * 2.0)),
         )
         .class(cosmic::theme::Container::Card);
@@ -446,7 +460,7 @@ impl Application for SmsWindow {
                     let offset_y = pos as f32 / self.nav_model.len() as f32;
 
                     tasks.push(scrollable::snap_to(
-                        CONTACTS_NAV_SCROLLABLE_ID.clone(),
+                        NAV_BAR_SCROLLABLE_ID.clone(),
                         scrollable::RelativeOffset {
                             x: Some(0.0),
                             y: Some(offset_y),
@@ -756,13 +770,22 @@ impl Application for SmsWindow {
                     },
                 );
 
-                tasks.push(Task::batch(vec![
-                    scroll_task.map(|_: cosmic::widget::Id| Action::App(SmsMessage::RefreshThread)),
+                let scroll_nav_task = scrollable::scroll_to(
+                    NAV_BAR_SCROLLABLE_ID.clone(),
+                    scrollable::AbsoluteOffset {
+                        x: Some(0.0),
+                        y: Some(0.0),
+                    },
+                );
+
+                return Task::batch(vec![
+                    scroll_task,
+                    scroll_nav_task,
                     cosmic::task::future(async move {
                         dbus::send_sms(&device_id, &phone, &text, attachments).await;
                         Action::App(SmsMessage::RefreshThread)
                     }),
-                ]));
+                ]);
             }
             SmsMessage::RefreshThread => {}
             SmsMessage::ProtocolEventReceived(event) => {
@@ -1068,6 +1091,20 @@ impl SmsWindow {
             {
                 conv.contact_name = name;
             }
+        }
+    }
+
+    /// True if this conversation should show the unread indicator. Once a
+    /// thread has been opened in this app session, the phone's own read flag
+    /// is ignored in favor of comparing against the last message timestamp
+    /// the user actually saw — there's no protocol way to write "read" back
+    /// to the phone, so mirroring its flag forever would mean the badge never
+    /// clears just because you read it here. For threads never opened this
+    /// session, falls back to the phone-reported flag as a reasonable guess.
+    fn is_conversation_unread(&self, conv: &Conversation) -> bool {
+        match self.last_seen_timestamp.get(&conv.thread_id) {
+            Some(&seen_at) => conv.timestamp > seen_at,
+            None => conv.unread,
         }
     }
 }
