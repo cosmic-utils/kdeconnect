@@ -885,7 +885,11 @@ impl SettingsApp {
                         col = col.push(
                             widget::settings::section().add(
                                 widget::settings::item::builder(fl!("run-commands-manage-header"))
-                                    .icon(widget::icon::from_name("utilities-terminal-symbolic"))
+                                    .icon(
+                                        widget::icon::from_name("utilities-terminal-symbolic")
+                                            .icon()
+                                            .size(22),
+                                    )
                                     .control(widget::button::icon(widget::icon::from_name(
                                         "go-next-symbolic",
                                     )))
@@ -910,7 +914,7 @@ impl SettingsApp {
                             widget::settings::section().add(
                                 widget::settings::item::builder(&plugin.name)
                                     .description(&plugin.description)
-                                    .icon(widget::icon::from_name(plugin.icon).icon())
+                                    .icon(widget::icon::from_name(plugin.icon).icon().size(22))
                                     .toggler(enabled, move |enabled| {
                                         Message::TogglePlugin(plugin_id.clone(), enabled)
                                     }),
