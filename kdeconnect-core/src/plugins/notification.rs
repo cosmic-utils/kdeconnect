@@ -48,7 +48,10 @@ impl Notification {
                 notify.action(action, action);
             }
 
-            notify.hint(notify_rust::Hint::Resident(true)).show().unwrap();
+            notify
+                .hint(notify_rust::Hint::Resident(true))
+                .show()
+                .unwrap();
         })
         .await;
     }

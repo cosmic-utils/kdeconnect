@@ -47,7 +47,11 @@ pub async fn save_hidden(device_id: &str, hidden: &HashSet<String>) {
     match serde_json::to_string(hidden) {
         Ok(json) => {
             if let Err(e) = tokio::fs::write(&path, json).await {
-                tracing::warn!("[hidden_conversations] failed to save for {}: {}", device_id, e);
+                tracing::warn!(
+                    "[hidden_conversations] failed to save for {}: {}",
+                    device_id,
+                    e
+                );
             }
         }
         Err(e) => tracing::warn!("[hidden_conversations] serialize failed: {}", e),

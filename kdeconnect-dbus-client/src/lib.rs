@@ -363,7 +363,10 @@ impl KdeConnectClient {
 
     /// Get cached contact photos as a raw JSON string (phone → base64)
     pub async fn get_cached_contact_photos(&self, device_id: &str) -> Result<String> {
-        Ok(self.contacts_proxy.get_cached_contact_photos(device_id).await?)
+        Ok(self
+            .contacts_proxy
+            .get_cached_contact_photos(device_id)
+            .await?)
     }
 
     /// Create a stream of service events
@@ -426,7 +429,9 @@ impl KdeConnectClient {
             .await?
             .filter_map(|s| async move {
                 match s.args() {
-                    Ok(args) => Some(ServiceEvent::SmsMessagesReceived(args.messages_json.clone())),
+                    Ok(args) => Some(ServiceEvent::SmsMessagesReceived(
+                        args.messages_json.clone(),
+                    )),
                     Err(e) => {
                         error!("Failed to parse SmsMessagesReceived signal: {:?}", e);
                         None
@@ -535,22 +540,22 @@ impl KdeConnectClient {
                 }
             });
 
-        let browse_failed = self
-            .daemon_proxy
-            .receive_browse_failed()
-            .await?
-            .filter_map(|s| async move {
-                match s.args() {
-                    Ok(args) => Some(ServiceEvent::BrowseFailed(
-                        args.device_id.clone(),
-                        args.message.clone(),
-                    )),
-                    Err(e) => {
-                        error!("Failed to parse BrowseFailed signal: {:?}", e);
-                        None
+        let browse_failed =
+            self.daemon_proxy
+                .receive_browse_failed()
+                .await?
+                .filter_map(|s| async move {
+                    match s.args() {
+                        Ok(args) => Some(ServiceEvent::BrowseFailed(
+                            args.device_id.clone(),
+                            args.message.clone(),
+                        )),
+                        Err(e) => {
+                            error!("Failed to parse BrowseFailed signal: {:?}", e);
+                            None
+                        }
                     }
-                }
-            });
+                });
 
         let mount_state = self
             .daemon_proxy
