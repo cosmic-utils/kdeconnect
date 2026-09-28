@@ -6,8 +6,6 @@ use cosmic::widget::space::horizontal;
 use cosmic::widget::{self};
 use cosmic::{Element, font, theme};
 
-use crate::plugins::sms::utils::normalize_phone_number;
-
 use super::actions::SmsMessage;
 use super::app::SmsWindow;
 use super::emoji::{EmojiCategory, is_emoji_char};
@@ -156,7 +154,7 @@ fn contacts_info<'a>(app: &'a SmsWindow) -> Element<'a, SmsMessage> {
                 .push(widget::text::caption_heading(
                     get_contact_name(app, &contact.0).unwrap_or_default(),
                 ))
-                .push(widget::text::caption(normalize_phone_number(&contact.0)))
+                .push(widget::text::caption(contact.0.clone()))
                 .into(),
             horizontal().into(),
             widget::button::icon(widget::icon::from_name("mail-message-new-symbolic"))
