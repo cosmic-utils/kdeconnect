@@ -749,7 +749,7 @@ impl SettingsApp {
         if self.plugin_enabled("sms") {
             buttons.push(quick_action_button(
                 "mail-message-new-symbolic",
-                fl!("quick-actions-sms"),
+                format!("{}…", fl!("quick-actions-sms")),
                 Message::RunQuickAction(QuickMessages::SMS(device.id.to_string())),
             ))
         };
@@ -757,7 +757,7 @@ impl SettingsApp {
         if self.plugin_enabled("share") {
             buttons.push(quick_action_button(
                 "document-send-symbolic",
-                fl!("quick-actions-send-file"),
+                format!("{}…", fl!("quick-actions-send-file")),
                 Message::RunQuickAction(QuickMessages::SendFiles(device.id.to_string())),
             ));
 
@@ -769,7 +769,7 @@ impl SettingsApp {
                     "folder-open-symbolic"
                 },
                 if !device.is_mounted {
-                    fl!("quick-actions-browse-device")
+                    format!("{}…", fl!("quick-actions-browse-device"))
                 } else {
                     fl!("quick-actions-unmount-device")
                 },
