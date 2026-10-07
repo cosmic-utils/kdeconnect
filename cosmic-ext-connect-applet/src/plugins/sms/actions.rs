@@ -13,6 +13,7 @@ use super::models::{Conversation, ProtocolEvent};
 /// All possible messages that the SMS window can receive and process.
 #[derive(Clone, Debug)]
 pub enum SmsMessage {
+    ActivateTab((SmsTabActive, Option<u16>)),
     LoadConversations,
     #[allow(dead_code)]
     ConversationsLoaded(Vec<Conversation>),
@@ -29,17 +30,16 @@ pub enum SmsMessage {
     AvatarsBaked(HashMap<String, Avatar>),
     SelectThread(String),
     UpdateInput(String),
-    UpdateSearch(String),
+    UpdateSearchContact(String),
+    ToggleConversationSearch,
+    ConversationLookup(String),
+    ScrolltoMessage(usize),
     SendMessage,
     RefreshThread,
-    #[allow(dead_code)]
-    CloseWindow,
+
     ProtocolEventReceived(ProtocolEvent),
-    OpenNewChatDialog,
-    CloseNewChatDialog,
-    UpdateNewChatPhone(String),
-    SelectContactForNewChat(usize),
-    CreateNewChat,
+
+    Chatting(String),
 
     // Emoji picker
     ToggleEmojiPicker,
@@ -56,7 +56,10 @@ pub enum SmsMessage {
     ConfirmDeleteConversation,
 
     /// User tapped a thumbnail that hasn't been fully downloaded yet.
-    RequestFullAttachment { part_id: i64, unique_identifier: String },
+    RequestFullAttachment {
+        part_id: i64,
+        unique_identifier: String,
+    },
     /// A full-resolution attachment finished downloading. Payload is
     /// (filename/unique_identifier, saved path) — see
     /// `kdeconnect_dbus_client::ServiceEvent::SmsAttachmentReceived`.
@@ -74,4 +77,10 @@ pub enum SmsMessage {
     AttachmentsPicked(Vec<String>),
     /// Removes one staged attachment by index before sending.
     RemovePendingAttachment(usize),
+}
+
+#[derive(Clone, Debug)]
+pub enum SmsTabActive {
+    Contacts,
+    Thread(String),
 }
