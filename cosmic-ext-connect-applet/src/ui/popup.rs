@@ -291,7 +291,7 @@ fn create_device_card<'a>(
 
         quick_actions_list = quick_actions_list.add(quick_action_btn(
             "mail-message-new-symbolic",
-            fl!("quick-actions-sms"),
+            format!("{}…", fl!("quick-actions-sms")),
             Message::SendSMS(device.id.clone()),
         ));
 
@@ -299,7 +299,7 @@ fn create_device_card<'a>(
             if device.has_share {
                 quick_actions_list = quick_actions_list.add(quick_action_btn(
                     "document-send-symbolic",
-                    fl!("quick-actions-send-file"),
+                    format!("{}…", fl!("quick-actions-send-file")),
                     Message::SendFiles(device.id.clone()),
                 ));
 
@@ -324,7 +324,7 @@ fn create_device_card<'a>(
                     .into(),
                 );
                 item_row.push(
-                    text::body(fl!("quick-actions-browse-device"))
+                    text::body(format!("{}…", fl!("quick-actions-browse-device")))
                         .width(Length::Fill)
                         .wrapping(Wrapping::Word)
                         .into(),

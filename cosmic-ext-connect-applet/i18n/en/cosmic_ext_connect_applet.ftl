@@ -23,10 +23,10 @@ quick-actions-header = Quick Actions
 quick-actions-ping = Ping
 quick-actions-find-phone = Find my phone
 quick-actions-share-clipboard = Share clipboard
-quick-actions-sms = SMS Messages…
+quick-actions-sms = SMS Messages
 quick-actions-files-header = Files
-quick-actions-send-file = Send file…
-quick-actions-browse-device = Browse device…
+quick-actions-send-file = Send file
+quick-actions-browse-device = Browse device
 quick-actions-unmount-device = Unmount device
 quick-actions-run-commands-header = Run Commands
 
