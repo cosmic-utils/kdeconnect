@@ -4,8 +4,8 @@
 //! settings window, and SMS window binaries.
 
 use i18n_embed::{
-    fluent::{fluent_language_loader, FluentLanguageLoader},
     DesktopLanguageRequester,
+    fluent::{FluentLanguageLoader, fluent_language_loader},
 };
 use rust_embed::RustEmbed;
 
@@ -36,5 +36,5 @@ pub mod messages;
 pub mod models;
 pub mod plugins;
 pub mod portal;
-pub mod ui;
 pub mod theme;
+pub mod ui;

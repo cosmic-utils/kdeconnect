@@ -85,44 +85,101 @@ const PACKET_TYPES: &[(&str, PacketType)] = &[
     ("kdeconnect.battery.request", PacketType::BatteryRequest),
     ("kdeconnect.clipboard", PacketType::Clipboard),
     ("kdeconnect.clipboard.connect", PacketType::ClipboardConnect),
-    ("kdeconnect.connectivity_report", PacketType::ConnectivityReport),
-    ("kdeconnect.connectivity_report.request", PacketType::ConnectivityReportRequest),
-    ("kdeconnect.contacts.request_all_uids_timestamps", PacketType::ContactsRequestAllUidsTimestamps),
-    ("kdeconnect.contacts.request_vcards_by_uid", PacketType::ContactsRequestVcardsByUid),
-    ("kdeconnect.contacts.response_uids_timestamps", PacketType::ContactsResponseUidsTimestamps),
-    ("kdeconnect.contacts.response_vcards", PacketType::ContactsResponseVcards),
-    ("kdeconnect.findmyphone.request", PacketType::FindMyPhoneRequest),
+    (
+        "kdeconnect.connectivity_report",
+        PacketType::ConnectivityReport,
+    ),
+    (
+        "kdeconnect.connectivity_report.request",
+        PacketType::ConnectivityReportRequest,
+    ),
+    (
+        "kdeconnect.contacts.request_all_uids_timestamps",
+        PacketType::ContactsRequestAllUidsTimestamps,
+    ),
+    (
+        "kdeconnect.contacts.request_vcards_by_uid",
+        PacketType::ContactsRequestVcardsByUid,
+    ),
+    (
+        "kdeconnect.contacts.response_uids_timestamps",
+        PacketType::ContactsResponseUidsTimestamps,
+    ),
+    (
+        "kdeconnect.contacts.response_vcards",
+        PacketType::ContactsResponseVcards,
+    ),
+    (
+        "kdeconnect.findmyphone.request",
+        PacketType::FindMyPhoneRequest,
+    ),
     ("kdeconnect.lock", PacketType::Lock),
     ("kdeconnect.lock.request", PacketType::LockRequest),
     ("kdeconnect.mousepad.echo", PacketType::MousePadEcho),
-    ("kdeconnect.mousepad.keyboardstate", PacketType::MousePadKeyboardState),
+    (
+        "kdeconnect.mousepad.keyboardstate",
+        PacketType::MousePadKeyboardState,
+    ),
     ("kdeconnect.mousepad.request", PacketType::MousePadRequest),
     ("kdeconnect.mpris", PacketType::Mpris),
     ("kdeconnect.mpris.request", PacketType::MprisRequest),
     ("kdeconnect.notification", PacketType::Notification),
-    ("kdeconnect.notification.action", PacketType::NotificationAction),
-    ("kdeconnect.notification.reply", PacketType::NotificationReply),
-    ("kdeconnect.notification.request", PacketType::NotificationRequest),
+    (
+        "kdeconnect.notification.action",
+        PacketType::NotificationAction,
+    ),
+    (
+        "kdeconnect.notification.reply",
+        PacketType::NotificationReply,
+    ),
+    (
+        "kdeconnect.notification.request",
+        PacketType::NotificationRequest,
+    ),
     ("kdeconnect.identity", PacketType::Identity),
     ("kdeconnect.pair", PacketType::Pair),
     ("kdeconnect.ping", PacketType::Ping),
     ("kdeconnect.presenter", PacketType::Presenter),
     ("kdeconnect.runcommand", PacketType::RunCommand),
-    ("kdeconnect.runcommand.request", PacketType::RunCommandRequest),
+    (
+        "kdeconnect.runcommand.request",
+        PacketType::RunCommandRequest,
+    ),
     ("kdeconnect.sftp", PacketType::Sftp),
     ("kdeconnect.sftp.request", PacketType::SftpRequest),
     ("kdeconnect.share.request", PacketType::ShareRequest),
-    ("kdeconnect.share.request.update", PacketType::ShareRequestUpdate),
-    ("kdeconnect.sms.attachment_file", PacketType::SmsAttachmentFile),
+    (
+        "kdeconnect.share.request.update",
+        PacketType::ShareRequestUpdate,
+    ),
+    (
+        "kdeconnect.sms.attachment_file",
+        PacketType::SmsAttachmentFile,
+    ),
     ("kdeconnect.sms.messages", PacketType::SmsMessages),
     ("kdeconnect.sms.request", PacketType::SmsRequest),
-    ("kdeconnect.sms.request_attachment", PacketType::SmsRequestAttachment),
-    ("kdeconnect.sms.request_conversation", PacketType::SmsRequestConversation),
-    ("kdeconnect.sms.request_conversations", PacketType::SmsRequestConversations),
+    (
+        "kdeconnect.sms.request_attachment",
+        PacketType::SmsRequestAttachment,
+    ),
+    (
+        "kdeconnect.sms.request_conversation",
+        PacketType::SmsRequestConversation,
+    ),
+    (
+        "kdeconnect.sms.request_conversations",
+        PacketType::SmsRequestConversations,
+    ),
     ("kdeconnect.systemvolume", PacketType::SystemVolume),
-    ("kdeconnect.systemvolume.request", PacketType::SystemVolumeRequest),
+    (
+        "kdeconnect.systemvolume.request",
+        PacketType::SystemVolumeRequest,
+    ),
     ("kdeconnect.telephony", PacketType::Telephony),
-    ("kdeconnect.telephony.request_mute", PacketType::TelephonyRequestMute),
+    (
+        "kdeconnect.telephony.request_mute",
+        PacketType::TelephonyRequestMute,
+    ),
 ];
 
 /// Legacy/alternate wire strings accepted on parse but never emitted.
@@ -136,7 +193,10 @@ impl From<String> for PacketType {
         if let Some(entry) = PACKET_TYPES.iter().find(|entry| entry.0 == value.as_str()) {
             return entry.1.clone();
         }
-        if let Some(entry) = PACKET_TYPE_ALIASES.iter().find(|entry| entry.0 == value.as_str()) {
+        if let Some(entry) = PACKET_TYPE_ALIASES
+            .iter()
+            .find(|entry| entry.0 == value.as_str())
+        {
             return entry.1.clone();
         }
         tracing::debug!("Unknown packet type received: {}", value);

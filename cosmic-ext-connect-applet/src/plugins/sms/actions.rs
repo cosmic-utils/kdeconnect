@@ -56,7 +56,10 @@ pub enum SmsMessage {
     ConfirmDeleteConversation,
 
     /// User tapped a thumbnail that hasn't been fully downloaded yet.
-    RequestFullAttachment { part_id: i64, unique_identifier: String },
+    RequestFullAttachment {
+        part_id: i64,
+        unique_identifier: String,
+    },
     /// A full-resolution attachment finished downloading. Payload is
     /// (filename/unique_identifier, saved path) — see
     /// `kdeconnect_dbus_client::ServiceEvent::SmsAttachmentReceived`.

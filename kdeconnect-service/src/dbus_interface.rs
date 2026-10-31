@@ -44,7 +44,8 @@ pub struct DbusDevice {
 
 fn device_cache_dir(device_id: &str) -> std::path::PathBuf {
     let base = dirs::data_local_dir().unwrap_or_else(|| std::path::PathBuf::from("~/.local/share"));
-    base.join(kdeconnect_core::config::CONFIG_DIR).join(device_id)
+    base.join(kdeconnect_core::config::CONFIG_DIR)
+        .join(device_id)
 }
 
 async fn save_contacts_cache(device_id: &str, contacts: &HashMap<String, String>) {
@@ -363,7 +364,10 @@ impl DaemonInterface {
             .map(|d| d.name.clone());
         if let Some(name) = device_name.as_deref() {
             if kdeconnect_core::plugins::sftp::open_mounted(&device_id, name).await {
-                debug!("BrowseDevice: {} already mounted, opened directly", device_id);
+                debug!(
+                    "BrowseDevice: {} already mounted, opened directly",
+                    device_id
+                );
                 return Ok(());
             }
         }
@@ -456,7 +460,9 @@ impl DaemonInterface {
     async fn accept_pairing(&self, device_id: String) -> zbus::fdo::Result<()> {
         info!("D-Bus: AcceptPairing called for {}", device_id);
         self.event_sender
-            .send(AppEvent::AcceptPairing(kdeconnect_core::device::DeviceId(device_id)))
+            .send(AppEvent::AcceptPairing(kdeconnect_core::device::DeviceId(
+                device_id,
+            )))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         Ok(())
     }
@@ -465,7 +471,9 @@ impl DaemonInterface {
     async fn reject_pairing(&self, device_id: String) -> zbus::fdo::Result<()> {
         info!("D-Bus: RejectPairing called for {}", device_id);
         self.event_sender
-            .send(AppEvent::RejectPairing(kdeconnect_core::device::DeviceId(device_id)))
+            .send(AppEvent::RejectPairing(kdeconnect_core::device::DeviceId(
+                device_id,
+            )))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         Ok(())
     }
@@ -553,10 +561,7 @@ impl DaemonInterface {
     /// Execute a remote command on a device by key
     async fn run_command(&self, device_id: String, key: String) -> zbus::fdo::Result<()> {
         info!("D-Bus: RunCommand called for {} key={}", device_id, key);
-        let packet = ProtocolPacket::new(
-            PacketType::RunCommandRequest,
-            json!({ "key": key }),
-        );
+        let packet = ProtocolPacket::new(PacketType::RunCommandRequest, json!({ "key": key }));
         self.event_sender
             .send(AppEvent::SendPacket(DeviceId(device_id), packet))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
@@ -581,7 +586,9 @@ impl DaemonInterface {
     async fn push_local_commands(&self, device_id: String) -> zbus::fdo::Result<()> {
         info!("D-Bus: PushLocalCommands called for {}", device_id);
         self.event_sender
-            .send(AppEvent::PushLocalCommands(kdeconnect_core::device::DeviceId(device_id)))
+            .send(AppEvent::PushLocalCommands(
+                kdeconnect_core::device::DeviceId(device_id),
+            ))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
         Ok(())
     }
@@ -664,14 +671,13 @@ impl SmsInterface {
     ) -> zbus::fdo::Result<()> {
         info!(
             "D-Bus: SendSms called for {} to {} ({} attachment(s))",
-            device_id, phone_number, attachments.len()
+            device_id,
+            phone_number,
+            attachments.len()
         );
-        let packet = kdeconnect_core::plugins::sms::build_send_packet(
-            &phone_number,
-            &message,
-            &attachments,
-        )
-        .await;
+        let packet =
+            kdeconnect_core::plugins::sms::build_send_packet(&phone_number, &message, &attachments)
+                .await;
         self.event_sender
             .send(AppEvent::SendPacket(DeviceId(device_id), packet))
             .map_err(|e| {
@@ -805,15 +811,14 @@ impl KdeConnectService {
         let sms_cache = self.sms_cache.clone();
         let clipboard = self.clipboard.clone();
         tokio::spawn(async move {
-            if let Err(e) =
-                crate::varlink_server::run_varlink_server(
-                    event_sender,
-                    devices,
-                    sms_cache,
-                    clipboard,
-                    broadcast_tx,
-                )
-                    .await
+            if let Err(e) = crate::varlink_server::run_varlink_server(
+                event_sender,
+                devices,
+                sms_cache,
+                clipboard,
+                broadcast_tx,
+            )
+            .await
             {
                 warn!("Varlink server exited: {:?}", e);
             }
@@ -999,10 +1004,9 @@ impl KdeConnectService {
                             PacketType::Clipboard,
                             json!({ "content": content.text.clone() }),
                         );
-                        if let Err(error) = event_sender.send(AppEvent::SendPacket(
-                            DeviceId(device.id.clone()),
-                            packet,
-                        )) {
+                        if let Err(error) = event_sender
+                            .send(AppEvent::SendPacket(DeviceId(device.id.clone()), packet))
+                        {
                             error!(
                                 "Failed to queue automatic clipboard for {}: {error}",
                                 device.id
@@ -1022,7 +1026,9 @@ impl KdeConnectService {
         tokio::spawn(async move {
             match core_handle.await {
                 Ok(_) => error!("Core event loop exited unexpectedly - connections will fail"),
-                Err(e) if e.is_panic() => error!("Core event loop PANICKED - connections will fail: {:?}", e),
+                Err(e) if e.is_panic() => {
+                    error!("Core event loop PANICKED - connections will fail: {:?}", e)
+                }
                 Err(e) => error!("Core event loop cancelled: {:?}", e),
             }
         });
@@ -1246,8 +1252,11 @@ impl KdeConnectService {
                     .interface::<_, DaemonInterface>(DAEMON_PATH)
                     .await?;
 
-                DaemonInterface::device_disconnected(iface_ref.signal_emitter(), device_id.0.clone())
-                    .await?;
+                DaemonInterface::device_disconnected(
+                    iface_ref.signal_emitter(),
+                    device_id.0.clone(),
+                )
+                .await?;
                 debug!("Device disconnected signal emitted");
 
                 let _ = broadcast_tx.send(crate::varlink_server::VarlinkEvent {
@@ -1257,7 +1266,10 @@ impl KdeConnectService {
                 });
             }
             ConnectionEvent::PairStateChanged((device_id, pair_state)) => {
-                info!("Event: PairStateChanged - {} → {:?}", device_id.0, pair_state);
+                info!(
+                    "Event: PairStateChanged - {} → {:?}",
+                    device_id.0, pair_state
+                );
                 let is_paired = matches!(pair_state, PairState::Paired);
 
                 {
@@ -1452,14 +1464,18 @@ impl KdeConnectService {
 
                 info!(
                     "Accepted clipboard.connect ({} bytes, remote timestamp {:?}, local timestamp {})",
-                    content.len(), timestamp, local_timestamp
+                    content.len(),
+                    timestamp,
+                    local_timestamp
                 );
                 if let Some(clipboard) = clipboard {
                     if let Err(error) = clipboard.set_text(content.clone()) {
                         error!("Failed to write connected device clipboard to desktop: {error}");
                     }
                 } else {
-                    error!("Cannot write connected device clipboard: background clipboard access unavailable");
+                    error!(
+                        "Cannot write connected device clipboard: background clipboard access unavailable"
+                    );
                 }
 
                 DaemonInterface::clipboard_received(iface_ref.signal_emitter(), content.clone())

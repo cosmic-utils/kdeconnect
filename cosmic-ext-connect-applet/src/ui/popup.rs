@@ -1,11 +1,13 @@
-
-use crate::messages::Message;
+use crate::messages::{self, Message};
 use crate::models::{Device, NowPlaying};
 use cosmic::app::Core;
+use cosmic::iced::core::text::Wrapping;
 use cosmic::iced::{Alignment, Length};
-use cosmic::widget::Row;
-use cosmic::{widget, Element};
+use cosmic::widget::{Row, icon, settings, space::horizontal, text};
+use cosmic::{Element, theme, widget};
 use std::collections::HashMap;
+
+const APPLET_VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Build the popup view using the real application Core so popup_container
 /// has proper applet context, theme, and sizing.
@@ -19,24 +21,26 @@ pub fn create_popup_view<'a>(
     now_playing: &'a HashMap<String, NowPlaying>,
 ) -> Element<'a, Message> {
     let spacing = cosmic::theme::active().cosmic().spacing;
-    let mut content = widget::Column::new()
-        .spacing(spacing.space_s)
-        .padding(spacing.space_s);
+
+    let mut content = widget::Column::new().padding(spacing.space_s);
+
+    let about_icon = widget::button::icon(widget::icon::from_name("help-about-symbolic"))
+        .on_press(Message::SwitchPage(messages::Page::About));
+    let settings_icon = widget::button::icon(widget::icon::from_name("application-menu-symbolic"))
+        .on_press(Message::OpenSettings);
 
     // Header
     content = content.push(
         Row::new()
-            .push(
-                widget::text(fl!("applet-title"))
-                    .size(18)
-                    .width(Length::Fill),
-            )
-            .push(widget::button::standard(fl!("applet-settings")).on_press(Message::OpenSettings))
-            .spacing(spacing.space_xs)
+            .push(about_icon)
+            .push(horizontal())
+            .push(settings_icon)
             .align_y(Alignment::Center),
     );
 
-    content = content.push(widget::divider::horizontal::default());
+    content = content
+        .push(widget::divider::horizontal::default())
+        .spacing(spacing.space_xxs);
 
     // Dismissible error banner — surfaces failures (e.g. browse-device
     // preflight checks) that used to be silently dropped.
@@ -241,7 +245,8 @@ fn create_device_card<'a>(
     if is_expanded && is_online {
         let mut menu_items = widget::Column::new().spacing(spacing.space_xxs);
 
-        let mut quick_actions_list = widget::list_column().style(cosmic::theme::Container::Transparent);
+        let mut quick_actions_list =
+            widget::list_column().style(cosmic::theme::Container::Transparent);
 
         quick_actions_list =
             quick_actions_list.add(widget::text::caption_heading(fl!("quick-actions-header")));
@@ -370,10 +375,7 @@ fn create_device_card<'a>(
 
         menu_items = menu_items.push(quick_actions_list);
 
-        col = col.push(
-            widget::container(menu_items)
-                .padding([spacing.space_xs, spacing.space_m])
-        );
+        col = col.push(widget::container(menu_items).padding([spacing.space_xs, spacing.space_m]));
     } else if is_expanded && !is_online {
         col = col.push(
             widget::container(widget::text(fl!("devices-not-reachable")).size(12))
@@ -482,4 +484,110 @@ fn create_media_card<'a>(
     .class(cosmic::theme::Container::Card)
     .width(Length::Fill)
     .into()
+}
+
+/// Builds About page view
+pub fn about_view<'a>(core: &'a Core) -> Element<'static, Message> {
+    let spacing = cosmic::theme::active().cosmic().spacing;
+
+    let mut content = widget::Column::new().padding(spacing.space_xs);
+
+    let back_button = widget::button::custom(settings::item_row(vec![
+        icon::from_name("go-previous-symbolic")
+            .size(16)
+            .icon()
+            .into(),
+        text::body("Back")
+            .width(Length::Fill)
+            .wrapping(Wrapping::Word)
+            .into(),
+    ]))
+    .on_press(messages::Message::SwitchPage(messages::Page::Dashboard))
+    .class(theme::Button::Link);
+
+    // Header
+    content = content.push(back_button);
+
+    // Center area
+    // Icon
+    content = content.push(
+        widget::container(
+            widget::icon::from_name("io.github.hepp3n.kdeconnect")
+                .prefer_svg(true)
+                .size(64),
+        )
+        .center_x(Length::Fill),
+    );
+    // Applet name
+    content = content.push(
+        widget::container(widget::text::title3(fl!("applet-title")).align_x(Alignment::Center))
+            .center_x(Length::Fill),
+    );
+    // Applet author
+    content = content.push(
+        widget::container(widget::text::caption_heading("heppen").align_x(Alignment::Center))
+            .center_x(Length::Fill),
+    );
+
+    // Applet version
+    content = content.push(
+        widget::container(widget::button::standard(APPLET_VERSION))
+            .padding([spacing.space_xxs, 0, 0, 0])
+            .center_x(Length::Fill),
+    );
+
+    // Links section
+    content = content
+        .push(widget::text::body("Links"))
+        .spacing(spacing.space_xxs);
+
+    let links = widget::settings::section()
+        .add(
+            widget::list::button(
+                widget::row::with_capacity(3)
+                    .align_y(Alignment::Center)
+                    .push(widget::text::body("Repository").width(Length::Fill))
+                    .push(widget::icon::from_name("link-symbolic").icon()),
+            )
+            .on_press(messages::Message::OpenRepository),
+        )
+        .add(
+            widget::list::button(
+                widget::row::with_capacity(3)
+                    .align_y(Alignment::Center)
+                    .push(widget::text::body("Support").width(Length::Fill))
+                    .push(widget::icon::from_name("link-symbolic").icon()),
+            )
+            .on_press(messages::Message::OpenSupport),
+        );
+
+    content = content.push(links);
+
+    // License
+    content = content
+        .push(widget::text::body("License"))
+        .spacing(spacing.space_xxs);
+
+    let license = widget::settings::section().add(
+        widget::list::button(
+            widget::row::with_capacity(3)
+                .align_y(Alignment::Center)
+                .push(widget::text::body("GPL-3.0 only").width(Length::Fill))
+                .push(widget::icon::from_name("link-symbolic").icon()),
+        )
+        .on_press(messages::Message::OpenLicense),
+    );
+
+    content = content.push(license);
+
+    // Description
+    content = content.push(widget::text::body(fl!("applet-description")));
+
+    let popup_content = widget::container(widget::scrollable(content))
+        .width(Length::Fixed(400.0))
+        .max_height(700.0)
+        .padding(spacing.space_xs);
+
+    // Use the real Core so the popup has proper applet context and theme
+    core.applet.popup_container(popup_content).into()
 }
