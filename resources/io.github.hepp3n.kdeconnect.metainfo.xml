@@ -46,6 +46,19 @@
   </recommends>
   <releases>
     <!-- Latest Version -->
+    <release version="0.11.0" date="2026-11-04">
+      <url type="details">https://github.com/cosmic-utils/kdeconnect</url>
+      <description>
+        <p>The is the new version with the following changes:</p>
+        <ul>
+	  <li>Updated libcosmic and other dependencies</li>
+          <li>Re-design following user-contributed concept.</li>
+	  <li>Fix TLS roles for accepted KDE Connect connections</li>
+	  <li>Improved translations</li>
+        </ul>
+      </description>
+    </release>
+    <!-- Previous Version -->
     <release version="0.10.0" date="2026-07-21">
       <url type="details">https://github.com/cosmic-utils/kdeconnect</url>
       <description>
@@ -61,7 +74,6 @@
         </ul>
       </description>
     </release>
-    <!-- Previous Version -->
     <release version="0.9.0" date="2026-06-29">
       <url type="details">https://github.com/cosmic-utils/kdeconnect</url>
       <description>
