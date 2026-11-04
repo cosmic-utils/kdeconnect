@@ -1,11 +1,12 @@
 use async_stream::stream;
-use cosmic::{
-    Action, Application, ApplicationExt, Element, Task,
-    app::Core,
-    iced::{Length, Subscription},
-    widget,
-};
+use cosmic::iced::widget::rule::horizontal;
 use cosmic::iced::widget::scrollable;
+use cosmic::iced::{self, Length, Radius};
+use cosmic::widget::text_input::focus;
+use cosmic::widget::{nav_bar, segmented_button};
+use cosmic::{
+    Action, Application, ApplicationExt, Element, Task, app::Core, iced::Subscription, widget,
+};
 use futures::StreamExt;
 use std::collections::HashMap;
 use tracing::{debug, error, info, warn};
@@ -17,9 +18,17 @@ use super::emoji::EmojiCategory;
 use super::models::{Conversation, Message, MessageAttachment, ProtocolEvent};
 use super::utils;
 use super::views;
+use crate::plugins::sms::actions::SmsTabActive;
+use crate::plugins::sms::utils::{PREVIEW_MAX_CHARS, phone_numbers_match, truncate_message};
+use crate::plugins::sms::views::CONVERSATIONS_SEARCH_INPUT_ID;
+
+pub static NAV_BAR_SCROLLABLE_ID: std::sync::LazyLock<cosmic::widget::Id> =
+    std::sync::LazyLock::new(cosmic::widget::Id::unique);
 
 pub struct SmsWindow {
     core: Core,
+    pub nav_model: nav_bar::Model,
+    pub active_tab: SmsTabActive,
     pub device_id: String,
     #[allow(dead_code)]
     pub device_name: String,
@@ -33,8 +42,11 @@ pub struct SmsWindow {
     pub selected_thread: Option<String>,
     pub contact_idx: Option<usize>,
     pub messages: Vec<Message>,
+    pub filtered_messages: Vec<Message>,
     pub message_input: String,
-    pub search_query: String,
+    pub search_contact_query: String,
+    pub search_field_active: bool,
+    pub conversation_query: String,
     pub show_new_chat_dialog: bool,
     pub new_chat_phone_input: String,
     pub show_emoji_picker: bool,
@@ -73,18 +85,25 @@ impl Application for SmsWindow {
         let (device_id, device_name) = flags;
         info!("SMS window init device_id={}", device_id);
 
+        let nav_model = segmented_button::ModelBuilder::default().build();
+
         let mut app = Self {
             core,
+            nav_model,
+            active_tab: SmsTabActive::Contacts,
             device_id: device_id.clone(),
             device_name: device_name.clone(),
             conversations: Vec::new(),
             contacts: Vec::new(),
             contact_photos: HashMap::new(),
             selected_thread: None,
-	    contact_idx: Some(0),
+            contact_idx: Some(0),
             messages: Vec::new(),
+            filtered_messages: Vec::new(),
             message_input: String::new(),
-            search_query: String::new(),
+            search_contact_query: String::new(),
+            search_field_active: false,
+            conversation_query: String::new(),
             show_new_chat_dialog: false,
             new_chat_phone_input: String::new(),
             show_emoji_picker: false,
@@ -98,12 +117,214 @@ impl Application for SmsWindow {
         let title = fl!("sms-window-title", device = device_name.as_str());
         app.core.window.header_title = title.clone().into();
 
-        let title_task = app.set_window_title(
-            title,
-            app.core.main_window_id().unwrap(),
-        );
+        let title_task = app.set_window_title(title, app.core.main_window_id().unwrap());
 
         (app, title_task)
+    }
+
+    fn nav_bar(&self) -> Option<Element<'_, cosmic::Action<Self::Message>>> {
+        if !self.core().nav_bar_active() {
+            return None;
+        }
+
+        let cosmic::cosmic_theme::Spacing {
+            space_xxs, space_s, ..
+        } = cosmic::theme::spacing();
+
+        const MAX_WIDTH: u16 = 280;
+
+        let mut column = widget::column::with_capacity(self.nav_model.len())
+            .padding(space_s)
+            .max_width(MAX_WIDTH);
+
+        for entity in self.nav_model.iter() {
+            let Some(tab) = self.nav_model.data::<SmsTabActive>(entity) else {
+                continue;
+            };
+
+            let active = entity == self.nav_model.active();
+
+            let nav_btn_class = cosmic::theme::Button::Custom {
+                active: Box::new(move |_active, theme| -> widget::button::Style {
+                    let mut appearance = widget::button::Style::new();
+                    if !active {
+                        appearance.background =
+                            iced::Background::Color(iced::Color::TRANSPARENT).into()
+                    } else {
+                        appearance.background =
+                            iced::Background::Color(theme.cosmic().accent_color().into()).into()
+                    }
+                    appearance.border_radius = Radius::new(8.0);
+                    appearance
+                }),
+                hovered: Box::new(move |_active, theme| -> widget::button::Style {
+                    let mut appearance = widget::button::Style::new();
+                    if !active {
+                        appearance.background = iced::Background::Color(
+                            theme.cosmic().primary_component_color().into(),
+                        )
+                        .into();
+                    } else {
+                        appearance.background =
+                            iced::Background::Color(theme.cosmic().accent_color().into()).into()
+                    }
+                    appearance.border_radius = Radius::new(8.0);
+                    appearance
+                }),
+                pressed: Box::new(move |_active, theme| -> widget::button::Style {
+                    let mut appearance = widget::button::Style::new();
+
+                    if !active {
+                        appearance.background =
+                            iced::Background::Color(iced::Color::TRANSPARENT).into()
+                    } else {
+                        appearance.background =
+                            iced::Background::Color(theme.cosmic().accent_color().into()).into()
+                    }
+                    appearance.border_radius = Radius::new(8.0);
+                    appearance
+                }),
+                disabled: Box::new(move |_theme| -> widget::button::Style {
+                    let mut appearance = widget::button::Style::new();
+                    appearance.background =
+                        iced::Background::Color(iced::Color::TRANSPARENT).into();
+                    appearance.border_radius = Radius::new(8.0);
+                    appearance
+                }),
+            };
+
+            match tab {
+                SmsTabActive::Contacts => {
+                    column = column.push(
+                        widget::button::custom(
+                            widget::row::Row::new()
+                                .width(Length::Fill)
+                                .spacing(space_xxs)
+                                .padding(space_xxs)
+                                .align_y(iced::Alignment::Center)
+                                .push(
+                                    widget::icon(
+                                        widget::icon::from_name("contact-new-symbolic").handle(),
+                                    )
+                                    .size(42),
+                                )
+                                .push(
+                                    widget::text::caption_heading(fl!("sms-new-chat-contacts"))
+                                        .size(15.0)
+                                        .font(cosmic::font::bold()),
+                                ),
+                        )
+                        .class(nav_btn_class)
+                        .width(Length::Fill)
+                        .on_press(Action::Cosmic(cosmic::app::Action::NavBar(entity))),
+                    );
+
+                    column = column.push(horizontal(1))
+                }
+                SmsTabActive::Thread(id) => {
+                    let unread = self
+                        .conversations
+                        .iter()
+                        .find(|c| c.thread_id == *id)
+                        .is_some_and(|c| self.is_conversation_unread(c));
+
+                    let last_message = self
+                        .conversations
+                        .iter()
+                        .find(|c| c.thread_id == *id)
+                        .map(|thread| thread.last_message.clone())
+                        .unwrap_or_default();
+
+                    let phone = self
+                        .conversations
+                        .iter()
+                        .find(|c| c.thread_id == *id)
+                        .map(|thread| thread.phone_number.clone())
+                        .unwrap_or_default();
+
+                    let name = self
+                        .conversations
+                        .iter()
+                        .find(|c| c.thread_id == *id)
+                        .map(|thread| thread.contact_name.clone())
+                        .and_then(|n| if n.is_empty() { Some(phone) } else { Some(n) })
+                        .unwrap();
+
+                    let name_widget = if unread {
+                        widget::text::text(name)
+                            .size(15.0)
+                            .font(cosmic::font::bold())
+                    } else {
+                        widget::text::text(name).size(15.0)
+                    };
+
+                    column = column.push(
+                        widget::button::custom(
+                            widget::row::Row::new()
+                                .spacing(space_xxs)
+                                .padding(space_xxs)
+                                .align_y(iced::Alignment::Center)
+                                .push(
+                                    widget::icon(
+                                        widget::icon::from_name("contact-new-symbolic").handle(),
+                                    )
+                                    .size(42),
+                                )
+                                .push(widget::column(vec![
+                                    name_widget.into(),
+                                    widget::text::caption(truncate_message(
+                                        &last_message,
+                                        PREVIEW_MAX_CHARS,
+                                    ))
+                                    .size(12.0)
+                                    .into(),
+                                ])),
+                        )
+                        .class(nav_btn_class)
+                        .width(Length::Fill)
+                        .on_press(Action::Cosmic(cosmic::app::Action::NavBar(entity))),
+                    );
+                }
+            }
+        }
+
+        let mut nav = widget::container(
+            scrollable(column)
+                .id(NAV_BAR_SCROLLABLE_ID.clone())
+                .width(Length::Fixed((MAX_WIDTH as f32) + (space_xxs as f32) * 2.0)),
+        )
+        .class(cosmic::theme::Container::Card);
+
+        if !self.core.is_condensed() {
+            nav = nav.max_width(MAX_WIDTH);
+        }
+
+        Some(nav.into())
+    }
+
+    fn nav_model(&self) -> Option<&nav_bar::Model> {
+        Some(&self.nav_model)
+    }
+
+    fn on_nav_select(&mut self, id: nav_bar::Id) -> cosmic::app::Task<Self::Message> {
+        self.nav_model.activate(id);
+
+        let _ = self.nav_model.data::<SmsTabActive>(id).map(|l| {
+            self.active_tab = l.clone();
+        });
+
+        if let Some(data) = self.nav_model.data::<SmsTabActive>(id) {
+            match data {
+                SmsTabActive::Contacts => {
+                    return Task::none();
+                }
+                SmsTabActive::Thread(id) => {
+                    return Task::done(Action::App(SmsMessage::SelectThread(id.clone())));
+                }
+            }
+        }
+
+        Task::none()
     }
 
     fn subscription(&self) -> Subscription<Self::Message> {
@@ -123,119 +344,137 @@ impl Application for SmsWindow {
             cosmic::iced::time::every(std::time::Duration::from_secs(45))
                 .map(|_| SmsMessage::LoadConversations),
             Subscription::run_with(device_id, |device_id| {
-            let device_id = device_id.clone();
-            stream! {
-                info!("SMS event stream started for device={}", device_id);
+                let device_id = device_id.clone();
+                stream! {
+                    info!("SMS event stream started for device={}", device_id);
 
-                if let Err(e) = dbus::initialize().await {
-                    error!("SMS D-Bus init failed: {:?}", e);
-                    std::future::pending::<()>().await;
-                    return;
-                }
-
-                let Some(client) = dbus::get_client().await else {
-                    warn!("SMS D-Bus no client available, stream idle");
-                    std::future::pending::<()>().await;
-                    return;
-                };
-
-                debug!("SMS event loop entering");
-
-                let cached_contacts = dbus::get_cached_contacts(&device_id).await;
-                if !cached_contacts.is_empty() {
-                    debug!("yielding {} cached contacts at startup", cached_contacts.len());
-                    yield SmsMessage::ContactsLoaded(cached_contacts);
-                }
-
-                let cached_photos = dbus::get_cached_contact_photos(&device_id).await;
-                if !cached_photos.is_empty() {
-                    debug!("yielding {} cached contact photos at startup", cached_photos.len());
-                    yield SmsMessage::ContactPhotosLoaded(cached_photos);
-                }
-
-                if let Some(cached_json) = dbus::get_cached_sms(&device_id).await {
-                    debug!("yielding cached SMS at startup");
-                    let (messages, conversations) = dbus::parse_sms_messages(&cached_json);
-                    for msg in messages {
-                        yield SmsMessage::ProtocolEventReceived(ProtocolEvent::MessageReceived(msg));
+                    if let Err(e) = dbus::initialize().await {
+                        error!("SMS D-Bus init failed: {:?}", e);
+                        std::future::pending::<()>().await;
+                        return;
                     }
-                    yield SmsMessage::ProtocolEventReceived(ProtocolEvent::ConversationsReceived(conversations));
-                }
 
-                loop {
-                    debug!("SMS subscribing to events");
-                    let mut event_stream = match client.listen_for_events().await {
-                        Ok(s) => s,
-                        Err(e) => {
-                            warn!("Failed to subscribe to SMS event stream: {:?}", e);
-                            tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
-                            continue;
-                        }
+                    let Some(client) = dbus::get_client().await else {
+                        warn!("SMS D-Bus no client available, stream idle");
+                        std::future::pending::<()>().await;
+                        return;
                     };
 
-                    // Subscribe FIRST, then request — contacts response is a
-                    // fire-and-forget D-Bus signal; if we request before subscribing
-                    // the signal arrives while nobody is listening and is lost.
-                    tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
-                    dbus::fetch_conversations(&device_id).await;
-                    dbus::fetch_contacts(&device_id).await;
+                    debug!("SMS event loop entering");
 
-                    while let Some(event) = event_stream.next().await {
-                        use kdeconnect_dbus_client::ServiceEvent;
-                        match event {
-                            ServiceEvent::SmsMessagesReceived(json) => {
-                                debug!("SmsMessagesReceived len={}", json.len());
-                                let (messages, conversations) = dbus::parse_sms_messages(&json);
-                                for msg in messages {
-                                    yield SmsMessage::ProtocolEventReceived(
-                                        ProtocolEvent::MessageReceived(msg)
-                                    );
-                                }
-                                yield SmsMessage::ProtocolEventReceived(
-                                    ProtocolEvent::ConversationsReceived(conversations)
-                                );
-                            }
-                            ServiceEvent::ContactsReceived(contacts) => {
-                                debug!("ContactsReceived {} entries", contacts.len());
-                                yield SmsMessage::ContactsLoaded(contacts);
-                            }
-                            ServiceEvent::SmsAttachmentReceived(filename, path) => {
-                                debug!("SmsAttachmentReceived {} -> {}", filename, path);
-                                yield SmsMessage::AttachmentReceived(filename, path.into());
-                            }
-                            ServiceEvent::ContactPhotosReceived(photos) => {
-                                debug!("ContactPhotosReceived {} entries", photos.len());
-                                let decoded: HashMap<String, Vec<u8>> = photos
-                                    .into_iter()
-                                    .filter_map(|(phone, b64)| {
-                                        kdeconnect_core::contacts::decode_photo(&b64)
-                                            .map(|bytes| (phone, bytes))
-                                    })
-                                    .collect();
-                                if !decoded.is_empty() {
-                                    yield SmsMessage::ContactPhotosLoaded(decoded);
-                                }
-                            }
-                            _ => {}
-                        }
+                    let cached_contacts = dbus::get_cached_contacts(&device_id).await;
+                    if !cached_contacts.is_empty() {
+                        debug!("yielding {} cached contacts at startup", cached_contacts.len());
+                        yield SmsMessage::ContactsLoaded(cached_contacts);
                     }
 
-                    warn!("SMS event stream ended, reconnecting in 1s");
-                    tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    let cached_photos = dbus::get_cached_contact_photos(&device_id).await;
+                    if !cached_photos.is_empty() {
+                        debug!("yielding {} cached contact photos at startup", cached_photos.len());
+                        yield SmsMessage::ContactPhotosLoaded(cached_photos);
+                    }
+
+                    if let Some(cached_json) = dbus::get_cached_sms(&device_id).await {
+                        debug!("yielding cached SMS at startup");
+                        let (messages, conversations) = dbus::parse_sms_messages(&cached_json);
+                        for msg in messages {
+                            yield SmsMessage::ProtocolEventReceived(ProtocolEvent::MessageReceived(msg));
+                        }
+                        yield SmsMessage::ProtocolEventReceived(ProtocolEvent::ConversationsReceived(conversations));
+                    }
+
+                    loop {
+                        debug!("SMS subscribing to events");
+                        let mut event_stream = match client.listen_for_events().await {
+                            Ok(s) => s,
+                            Err(e) => {
+                                warn!("Failed to subscribe to SMS event stream: {:?}", e);
+                                tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                                continue;
+                            }
+                        };
+
+                        // Subscribe FIRST, then request — contacts response is a
+                        // fire-and-forget D-Bus signal; if we request before subscribing
+                        // the signal arrives while nobody is listening and is lost.
+                        tokio::time::sleep(tokio::time::Duration::from_millis(300)).await;
+                        dbus::fetch_conversations(&device_id).await;
+                        dbus::fetch_contacts(&device_id).await;
+
+                        while let Some(event) = event_stream.next().await {
+                            use kdeconnect_dbus_client::ServiceEvent;
+                            match event {
+                                ServiceEvent::SmsMessagesReceived(json) => {
+                                    debug!("SmsMessagesReceived len={}", json.len());
+                                    let (messages, conversations) = dbus::parse_sms_messages(&json);
+                                    for msg in messages {
+                                        yield SmsMessage::ProtocolEventReceived(
+                                            ProtocolEvent::MessageReceived(msg)
+                                        );
+                                    }
+                                    yield SmsMessage::ProtocolEventReceived(
+                                        ProtocolEvent::ConversationsReceived(conversations)
+                                    );
+                                }
+                                ServiceEvent::ContactsReceived(contacts) => {
+                                    debug!("ContactsReceived {} entries", contacts.len());
+                                    yield SmsMessage::ContactsLoaded(contacts);
+                                }
+                                ServiceEvent::SmsAttachmentReceived(filename, path) => {
+                                    debug!("SmsAttachmentReceived {} -> {}", filename, path);
+                                    yield SmsMessage::AttachmentReceived(filename, path.into());
+                                }
+                                ServiceEvent::ContactPhotosReceived(photos) => {
+                                    debug!("ContactPhotosReceived {} entries", photos.len());
+                                    let decoded: HashMap<String, Vec<u8>> = photos
+                                        .into_iter()
+                                        .filter_map(|(phone, b64)| {
+                                            kdeconnect_core::contacts::decode_photo(&b64)
+                                                .map(|bytes| (phone, bytes))
+                                        })
+                                        .collect();
+                                    if !decoded.is_empty() {
+                                        yield SmsMessage::ContactPhotosLoaded(decoded);
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        warn!("SMS event stream ended, reconnecting in 1s");
+                        tokio::time::sleep(tokio::time::Duration::from_secs(1)).await;
+                    }
                 }
-            }
-        }),
+            }),
         ])
     }
 
     fn update(&mut self, message: Self::Message) -> Task<Action<Self::Message>> {
+        let mut tasks = vec![];
+
         match message {
+            SmsMessage::ActivateTab((tab, position)) => {
+                if let Some(pos) = position {
+                    self.nav_model.activate_position(pos);
+
+                    let offset_y = pos as f32 / self.nav_model.len() as f32;
+
+                    tasks.push(scrollable::snap_to(
+                        NAV_BAR_SCROLLABLE_ID.clone(),
+                        scrollable::RelativeOffset {
+                            x: Some(0.0),
+                            y: Some(offset_y),
+                        },
+                    ));
+                }
+                self.active_tab = tab;
+            }
             SmsMessage::LoadConversations => {
                 let device_id = self.device_id.clone();
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     dbus::fetch_conversations(&device_id).await;
                     Action::App(SmsMessage::RefreshThread)
-                });
+                }));
             }
             SmsMessage::ConversationsLoaded(conversations) => {
                 debug!("ConversationsLoaded: {}", conversations.len());
@@ -244,13 +483,16 @@ impl Application for SmsWindow {
             }
             SmsMessage::ContactsLoaded(contacts) => {
                 debug!("ContactsLoaded: {} contacts", contacts.len());
-		let sorted = utils::sort_cached_contacts(contacts);
+                let sorted = utils::sort_cached_contacts(contacts);
                 self.contacts = sorted;
                 self.update_conversation_names();
             }
             SmsMessage::ContactPhotosLoaded(photos) => {
-                debug!("ContactPhotosLoaded: {} photos, baking off the UI thread", photos.len());
-                return cosmic::task::future(async move {
+                debug!(
+                    "ContactPhotosLoaded: {} photos, baking off the UI thread",
+                    photos.len()
+                );
+                tasks.push(cosmic::task::future(async move {
                     let baked = tokio::task::spawn_blocking(move || {
                         photos
                             .into_iter()
@@ -265,19 +507,22 @@ impl Application for SmsWindow {
                         HashMap::new()
                     });
                     Action::App(SmsMessage::AvatarsBaked(baked))
-                });
+                }));
             }
             SmsMessage::AvatarsBaked(baked) => {
                 debug!("AvatarsBaked: {} avatars", baked.len());
                 self.contact_photos.extend(baked);
             }
-            SmsMessage::RequestFullAttachment { part_id, unique_identifier } => {
+            SmsMessage::RequestFullAttachment {
+                part_id,
+                unique_identifier,
+            } => {
                 debug!("RequestFullAttachment part_id={}", part_id);
                 let device_id = self.device_id.clone();
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     dbus::request_sms_attachment(&device_id, part_id, &unique_identifier).await;
                     Action::None
-                });
+                }));
             }
             SmsMessage::AttachmentReceived(filename, path) => {
                 debug!("AttachmentReceived {} -> {:?}", filename, path);
@@ -291,23 +536,24 @@ impl Application for SmsWindow {
             }
             SmsMessage::OpenAttachment(path) => {
                 debug!("OpenAttachment {:?}", path);
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     if let Err(e) = tokio::process::Command::new("xdg-open").arg(&path).spawn() {
                         warn!("failed to open attachment {:?}: {}", path, e);
                     }
                     Action::None
-                });
+                }));
             }
             SmsMessage::SaveAttachment(path) => {
                 debug!("SaveAttachment {:?}", path);
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     let suggested_name = path
                         .file_name()
                         .map(|n| n.to_string_lossy().into_owned())
                         .unwrap_or_else(|| "attachment".to_string());
 
                     let Some(dest) =
-                        crate::portal::save_file(fl!("sms-save-attachment-title"), suggested_name).await
+                        crate::portal::save_file(fl!("sms-save-attachment-title"), suggested_name)
+                            .await
                     else {
                         debug!("save attachment cancelled");
                         return Action::None;
@@ -339,14 +585,14 @@ impl Application for SmsWindow {
                         }
                     }
                     Action::None
-                });
+                }));
             }
             SmsMessage::PickAttachment => {
-                return cosmic::task::future(async move {
-                    let paths = crate::portal::pick_files(fl!("sms-attach-picker-title"), true, None)
-                        .await;
+                tasks.push(cosmic::task::future(async move {
+                    let paths =
+                        crate::portal::pick_files(fl!("sms-attach-picker-title"), true, None).await;
                     Action::App(SmsMessage::AttachmentsPicked(paths))
-                });
+                }));
             }
             SmsMessage::AttachmentsPicked(paths) => {
                 debug!("AttachmentsPicked: {} file(s)", paths.len());
@@ -359,30 +605,98 @@ impl Application for SmsWindow {
             }
             SmsMessage::SelectThread(thread_id) => {
                 debug!("SelectThread: {}", thread_id);
+
                 if let Some(conv) = self.conversations.iter().find(|c| c.thread_id == thread_id) {
-                    self.last_seen_timestamp.insert(thread_id.clone(), conv.timestamp);
+                    self.last_seen_timestamp
+                        .insert(thread_id.clone(), conv.timestamp);
                 }
                 self.selected_thread = Some(thread_id.clone());
+
                 self.messages.clear();
+
                 let device_id = self.device_id.clone();
                 let device_id2 = device_id.clone();
                 let last_seen = self.last_seen_timestamp.clone();
-                return Task::batch([
+
+                let thid = thread_id.clone();
+
+                let tasks = vec![
                     cosmic::task::future(async move {
-                        dbus::request_conversation_messages(&device_id, &thread_id).await;
+                        dbus::request_conversation_messages(&device_id, &thid).await;
                         Action::App(SmsMessage::RefreshThread)
                     }),
                     cosmic::task::future(async move {
-                        kdeconnect_core::sms_read_state::save_last_seen(&device_id2, &last_seen).await;
+                        kdeconnect_core::sms_read_state::save_last_seen(&device_id2, &last_seen)
+                            .await;
                         Action::None
                     }),
-                ]);
+                    scrollable::snap_to(
+                        views::CONVERSATIONS_SCROLLABLE_ID.clone(),
+                        scrollable::RelativeOffset {
+                            x: Some(0.0),
+                            y: Some(0.0),
+                        },
+                    ),
+                ];
+
+                if !self.search_contact_query.is_empty() {
+                    self.search_contact_query.clear();
+                }
+
+                return Task::batch(tasks);
             }
             SmsMessage::UpdateInput(input) => {
                 self.message_input = input;
             }
-            SmsMessage::UpdateSearch(query) => {
-                self.search_query = query;
+            SmsMessage::UpdateSearchContact(query) => {
+                self.search_contact_query = query;
+            }
+            SmsMessage::ToggleConversationSearch => {
+                self.search_field_active = !self.search_field_active;
+
+                if self.search_field_active {
+                    return focus(CONVERSATIONS_SEARCH_INPUT_ID.clone());
+                }
+
+                if !self.search_field_active {
+                    self.conversation_query.clear();
+                    self.filtered_messages.clear();
+                }
+            }
+            SmsMessage::ConversationLookup(query) => {
+                self.conversation_query = query.clone();
+
+                if self.conversation_query.len() >= 3 {
+                    let mut matched_msgs = self
+                        .messages
+                        .iter()
+                        .filter(|m| {
+                            m.body
+                                .to_lowercase()
+                                .contains(&self.conversation_query.to_lowercase())
+                        })
+                        .map(|m| m.clone())
+                        .collect::<Vec<Message>>();
+
+                    matched_msgs.sort_by_key(|m| m.date);
+                    self.filtered_messages = matched_msgs;
+                }
+            }
+            SmsMessage::ScrolltoMessage(position) => {
+                let offset_y =
+                    (1.0 / self.messages.len() as f32) * (self.messages.len() - position) as f32;
+
+                self.conversation_query.clear();
+                self.filtered_messages.clear();
+                self.search_field_active = false;
+
+                return scrollable::snap_to(
+                    views::CONVERSATIONS_SCROLLABLE_ID.clone(),
+                    scrollable::RelativeOffset {
+                        x: Some(0.0),
+                        y: Some(offset_y),
+                    },
+                );
             }
             SmsMessage::SendMessage => {
                 if self.message_input.trim().is_empty() && self.pending_attachments.is_empty() {
@@ -436,20 +750,37 @@ impl Application for SmsWindow {
 
                 // Update the conversation preview and timestamp so it sorts to
                 // the top of the list immediately without waiting for a server refresh.
-                if let Some(conv) = self.conversations.iter_mut().find(|c| c.thread_id == thread_id) {
+                if let Some(conv) = self
+                    .conversations
+                    .iter_mut()
+                    .find(|c| c.thread_id == thread_id)
+                {
                     conv.last_message = text.clone();
                     conv.timestamp = now;
                 }
-                self.conversations.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+                self.conversations
+                    .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
 
                 // Scroll the conversation list to the top so the moved item is visible.
                 let scroll_task = scrollable::scroll_to(
                     views::CONVERSATIONS_SCROLLABLE_ID.clone(),
-                    scrollable::AbsoluteOffset { x: Some(0.0), y: Some(0.0) },
+                    scrollable::AbsoluteOffset {
+                        x: Some(0.0),
+                        y: Some(0.0),
+                    },
+                );
+
+                let scroll_nav_task = scrollable::scroll_to(
+                    NAV_BAR_SCROLLABLE_ID.clone(),
+                    scrollable::AbsoluteOffset {
+                        x: Some(0.0),
+                        y: Some(0.0),
+                    },
                 );
 
                 return Task::batch(vec![
-                    scroll_task.map(|_: cosmic::widget::Id| Action::App(SmsMessage::RefreshThread)),
+                    scroll_task,
+                    scroll_nav_task,
                     cosmic::task::future(async move {
                         dbus::send_sms(&device_id, &phone, &text, attachments).await;
                         Action::App(SmsMessage::RefreshThread)
@@ -458,27 +789,28 @@ impl Application for SmsWindow {
             }
             SmsMessage::RefreshThread => {}
             SmsMessage::ProtocolEventReceived(event) => {
-                debug!("ProtocolEventReceived: {:?}", std::mem::discriminant(&event));
+                debug!(
+                    "ProtocolEventReceived: {:?}",
+                    std::mem::discriminant(&event)
+                );
                 self.handle_protocol_event(event);
             }
-            SmsMessage::OpenNewChatDialog => {
-                self.show_new_chat_dialog = true;
-            }
-            SmsMessage::CloseNewChatDialog => {
-                self.show_new_chat_dialog = false;
-                self.new_chat_phone_input.clear();
-            }
-            SmsMessage::UpdateNewChatPhone(phone) => {
-                self.new_chat_phone_input = phone;
-            }
-            SmsMessage::SelectContactForNewChat(idx) => {
-		self.new_chat_phone_input = self.contacts[idx].0.clone();
-		self.contact_idx = Some(idx);
-            }
-            SmsMessage::CreateNewChat => {
-                let phone = self.new_chat_phone_input.trim().to_string();
-                if !phone.is_empty() {
+            SmsMessage::Chatting(phone) => {
+                let conv_exist = self
+                    .conversations
+                    .iter()
+                    .find(|c| phone_numbers_match(&c.phone_number, &phone))
+                    .is_some();
+
+                let thread_id = self
+                    .conversations
+                    .iter()
+                    .find(|c| phone_numbers_match(&c.phone_number, &phone))
+                    .map(|c| c.thread_id.clone());
+
+                if !conv_exist {
                     let thread_id = format!("new_{}", utils::now_millis());
+
                     self.conversations.insert(
                         0,
                         Conversation {
@@ -490,12 +822,30 @@ impl Application for SmsWindow {
                             unread: false,
                         },
                     );
-                    self.show_new_chat_dialog = false;
-                    self.new_chat_phone_input.clear();
-                    return cosmic::task::message(Action::App(SmsMessage::SelectThread(thread_id)));
-                }
+
+                    return cosmic::task::future(async move {
+                        Action::App(SmsMessage::ActivateTab((
+                            SmsTabActive::Thread(thread_id),
+                            Some(1),
+                        )))
+                    });
+                };
+
+                let Some(id) = thread_id else {
+                    return Task::none();
+                };
+                let chat_idx = self.conversations.iter().position(|c| c.thread_id == id);
+
+                tasks.push(cosmic::task::message(Action::App(
+                    SmsMessage::SelectThread(id.clone()),
+                )));
+
+                if let Some(idx) = chat_idx {
+                    tasks.push(cosmic::task::message(Action::App(SmsMessage::ActivateTab(
+                        (SmsTabActive::Thread(id.clone()), Some(idx as u16 + 1)),
+                    ))));
+                };
             }
-            SmsMessage::CloseWindow => std::process::exit(0),
             SmsMessage::ToggleEmojiPicker => {
                 self.show_emoji_picker = !self.show_emoji_picker;
             }
@@ -526,29 +876,57 @@ impl Application for SmsWindow {
 
                 let device_id = self.device_id.clone();
                 let hidden = self.hidden_conversations.clone();
-                return cosmic::task::future(async move {
+                tasks.push(cosmic::task::future(async move {
                     kdeconnect_core::hidden_conversations::save_hidden(&device_id, &hidden).await;
                     Action::None
-                });
+                }));
             }
         }
-        Task::none()
+
+        self.update_nav_model();
+
+        Task::batch(tasks)
     }
 
     fn dialog(&self) -> Option<Element<'_, Self::Message>> {
-        self.pending_delete_thread.as_ref().map(|_| self.delete_confirm_dialog())
+        self.pending_delete_thread
+            .as_ref()
+            .map(|_| self.delete_confirm_dialog())
     }
 
     fn view(&self) -> Element<'_, Self::Message> {
-        widget::container(views::view_main(self))
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .align_x(cosmic::iced::Alignment::Center)
-	    .into()
+        let content = match &self.active_tab {
+            SmsTabActive::Contacts => views::view_contacts(self),
+            SmsTabActive::Thread(tdid) => views::view_thread(self, tdid.clone()),
+        };
+
+        widget::container(content).center_x(Length::Fill).into()
     }
 }
 
 impl SmsWindow {
+    fn update_nav_model(&mut self) {
+        let previous_active = self.nav_model.active();
+
+        let mut nav_model = segmented_button::ModelBuilder::default();
+
+        // show contacts button
+        nav_model = nav_model.insert(|b| b.data(SmsTabActive::Contacts).activate());
+
+        self.conversations
+            .sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
+
+        if !self.conversations.is_empty() {
+            for conv in &self.conversations {
+                nav_model =
+                    nav_model.insert(|b| b.data(SmsTabActive::Thread(conv.thread_id.clone())));
+            }
+        }
+
+        self.nav_model = nav_model.build();
+        self.nav_model.activate(previous_active);
+    }
+
     /// Builds the delete-confirmation dialog shown via `Application::dialog()`.
     fn delete_confirm_dialog(&self) -> Element<'_, SmsMessage> {
         let display_name = self
@@ -581,7 +959,10 @@ impl SmsWindow {
     fn handle_protocol_event(&mut self, event: ProtocolEvent) {
         match event {
             ProtocolEvent::ConversationsReceived(conversations) => {
-                debug!("ConversationsReceived: {} conversations", conversations.len());
+                debug!(
+                    "ConversationsReceived: {} conversations",
+                    conversations.len()
+                );
 
                 // Capture selected new_* phone BEFORE we mutate merged
                 let pending_new_phone: Option<String> = self
@@ -599,10 +980,7 @@ impl SmsWindow {
 
                     if let Some(pos) = merged.iter().position(|c| {
                         c.thread_id.starts_with("new_")
-                            && utils::phone_numbers_match(
-                                &c.phone_number,
-                                &incoming.phone_number,
-                            )
+                            && utils::phone_numbers_match(&c.phone_number, &incoming.phone_number)
                     }) {
                         merged[pos] = incoming.clone();
                     } else if let Some(existing) = merged
@@ -619,13 +997,14 @@ impl SmsWindow {
                     if !c.thread_id.starts_with("new_") {
                         return true;
                     }
-                    !conversations.iter().any(|r| {
-                        utils::phone_numbers_match(&r.phone_number, &c.phone_number)
-                    })
+                    !conversations
+                        .iter()
+                        .any(|r| utils::phone_numbers_match(&r.phone_number, &c.phone_number))
                 });
 
                 self.conversations = merged;
-                self.conversations.retain(|c| !self.hidden_conversations.contains(&c.thread_id));
+                self.conversations
+                    .retain(|c| !self.hidden_conversations.contains(&c.thread_id));
                 self.update_conversation_names();
 
                 // If we had a new_* selected, find its real thread by phone number now
@@ -657,7 +1036,8 @@ impl SmsWindow {
                     let device_id = self.device_id.clone();
                     let last_seen = self.last_seen_timestamp.clone();
                     tokio::spawn(async move {
-                        kdeconnect_core::sms_read_state::save_last_seen(&device_id, &last_seen).await;
+                        kdeconnect_core::sms_read_state::save_last_seen(&device_id, &last_seen)
+                            .await;
                     });
 
                     let already_exists = self.messages.iter().any(|m| {
@@ -711,6 +1091,20 @@ impl SmsWindow {
             {
                 conv.contact_name = name;
             }
+        }
+    }
+
+    /// True if this conversation should show the unread indicator. Once a
+    /// thread has been opened in this app session, the phone's own read flag
+    /// is ignored in favor of comparing against the last message timestamp
+    /// the user actually saw — there's no protocol way to write "read" back
+    /// to the phone, so mirroring its flag forever would mean the badge never
+    /// clears just because you read it here. For threads never opened this
+    /// session, falls back to the phone-reported flag as a reasonable guess.
+    fn is_conversation_unread(&self, conv: &Conversation) -> bool {
+        match self.last_seen_timestamp.get(&conv.thread_id) {
+            Some(&seen_at) => conv.timestamp > seen_at,
+            None => conv.unread,
         }
     }
 }

@@ -79,7 +79,10 @@ pub async fn fetch_conversations(device_id: &str) {
 }
 
 pub async fn request_conversation_messages(device_id: &str, thread_id: &str) {
-    debug!("request_conversation device={} thread={}", device_id, thread_id);
+    debug!(
+        "request_conversation device={} thread={}",
+        device_id, thread_id
+    );
     let tid = thread_id.parse::<i64>().unwrap_or(0);
     use kdeconnect_varlink::iface::VarlinkClientInterface;
     let id = device_id.to_string();
@@ -99,10 +102,17 @@ pub async fn request_conversation_messages(device_id: &str, thread_id: &str) {
     }
 }
 
-pub async fn send_sms(device_id: &str, phone_number: &str, message: &str, attachments: Vec<String>) {
+pub async fn send_sms(
+    device_id: &str,
+    phone_number: &str,
+    message: &str,
+    attachments: Vec<String>,
+) {
     debug!(
         "send_sms to={} device={} attachments={}",
-        phone_number, device_id, attachments.len()
+        phone_number,
+        device_id,
+        attachments.len()
     );
     use kdeconnect_varlink::iface::VarlinkClientInterface;
     let id = device_id.to_string();
@@ -119,7 +129,10 @@ pub async fn send_sms(device_id: &str, phone_number: &str, message: &str, attach
     let Some(client) = get_client().await else {
         return;
     };
-    match client.send_sms(device_id, phone_number, message, attachments).await {
+    match client
+        .send_sms(device_id, phone_number, message, attachments)
+        .await
+    {
         Ok(_) => debug!("send_sms OK"),
         Err(e) => error!("send_sms failed: {:?}", e),
     }
@@ -129,7 +142,10 @@ pub async fn send_sms(device_id: &str, phone_number: &str, message: &str, attach
 /// — the result arrives later as a `SmsAttachmentReceived` D-Bus signal,
 /// same as every other async SMS event.
 pub async fn request_sms_attachment(device_id: &str, part_id: i64, unique_identifier: &str) {
-    debug!("request_sms_attachment device={} part_id={}", device_id, part_id);
+    debug!(
+        "request_sms_attachment device={} part_id={}",
+        device_id, part_id
+    );
     use kdeconnect_varlink::iface::VarlinkClientInterface;
     let id = device_id.to_string();
     let uid = unique_identifier.to_string();
@@ -143,7 +159,10 @@ pub async fn request_sms_attachment(device_id: &str, part_id: i64, unique_identi
     let Some(client) = get_client().await else {
         return;
     };
-    match client.request_sms_attachment(device_id, part_id, unique_identifier).await {
+    match client
+        .request_sms_attachment(device_id, part_id, unique_identifier)
+        .await
+    {
         Ok(_) => debug!("request_sms_attachment sent"),
         Err(e) => error!("request_sms_attachment failed: {:?}", e),
     }
@@ -200,7 +219,9 @@ pub async fn get_cached_contacts(device_id: &str) -> std::collections::HashMap<S
 /// Fetches cached contact photos and decodes them once here (phone →
 /// raw image bytes), same as SMS thumbnails — so views.rs never has to
 /// decode base64 on every render.
-pub async fn get_cached_contact_photos(device_id: &str) -> std::collections::HashMap<String, Vec<u8>> {
+pub async fn get_cached_contact_photos(
+    device_id: &str,
+) -> std::collections::HashMap<String, Vec<u8>> {
     debug!("get_cached_contact_photos device={}", device_id);
     use kdeconnect_varlink::iface::VarlinkClientInterface;
 
@@ -242,7 +263,11 @@ pub async fn get_cached_sms(device_id: &str) -> Option<String> {
     use kdeconnect_varlink::iface::VarlinkClientInterface;
     let id = device_id.to_string();
     if let Some(reply) = via_varlink(|c| async move { c.get_cached_sms(id).call().await }).await {
-        return if reply.json.is_empty() { None } else { Some(reply.json) };
+        return if reply.json.is_empty() {
+            None
+        } else {
+            Some(reply.json)
+        };
     }
 
     let Some(client) = get_client().await else {
@@ -275,7 +300,11 @@ pub fn parse_sms_messages(messages_json: &str) -> (Vec<Message>, Vec<Conversatio
         }
     };
 
-    let raw_messages = raw.get("messages").and_then(|m| m.as_array()).cloned().unwrap_or_default();
+    let raw_messages = raw
+        .get("messages")
+        .and_then(|m| m.as_array())
+        .cloned()
+        .unwrap_or_default();
 
     // Deserialize message-by-message rather than the whole array at once.
     // A single unusual entry — e.g. a read receipt, reaction, or other
