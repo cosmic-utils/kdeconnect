@@ -693,6 +693,7 @@ pub(crate) async fn receive_payload(
     domain: &DeviceId,
     addr: &SocketAddr,
     temp_file: &PathBuf,
+    expected_size: Option<u64>,
 ) -> anyhow::Result<()> {
     let config = GLOBAL_CONFIG.get().unwrap();
     let client_config = config.key_store.client_config.clone();
@@ -708,13 +709,51 @@ pub(crate) async fn receive_payload(
 
     debug!("connected");
 
-    if let Ok(mut save_path) = tokio::fs::File::create(&temp_file).await {
-        let _ = tokio::io::copy(&mut stream, &mut save_path).await;
-        let _ = stream.flush().await;
-        let _ = stream.shutdown().await;
-    }
+    let mut save_path = tokio::fs::File::create(temp_file).await?;
+    save_payload(&mut stream, &mut save_path, expected_size).await?;
 
     info!("successfully received payload");
 
     Ok(())
+}
+
+async fn save_payload(
+    input: impl tokio::io::AsyncRead + Unpin,
+    output: &mut (impl tokio::io::AsyncWrite + Unpin),
+    expected_size: Option<u64>,
+) -> anyhow::Result<()> {
+    let mut input = input.take(expected_size.unwrap_or(u64::MAX));
+    let received = tokio::io::copy(&mut input, output).await?;
+    anyhow::ensure!(
+        expected_size.is_none_or(|size| received == size),
+        "Incomplete payload: received {received} bytes, expected {expected_size:?}"
+    );
+    output.flush().await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod payload_tests {
+    use super::save_payload;
+
+    #[tokio::test]
+    async fn incomplete_payload_is_not_reported_as_saved() {
+        assert!(
+            save_payload(&b"abc"[..], &mut Vec::new(), Some(4))
+                .await
+                .is_err()
+        );
+        let temporary = tempfile::NamedTempFile::new().unwrap();
+        let mut read_only = tokio::fs::File::open(temporary.path()).await.unwrap();
+        assert!(
+            save_payload(&b"abc"[..], &mut read_only, Some(3))
+                .await
+                .is_err()
+        );
+        let mut saved = Vec::new();
+        save_payload(&b"abc"[..], &mut saved, Some(3))
+            .await
+            .unwrap();
+        assert_eq!(saved, b"abc");
+    }
 }
