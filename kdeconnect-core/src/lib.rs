@@ -495,7 +495,12 @@ impl KdeConnectCore {
                 let sender = guard.get(&device_id).cloned();
                 drop(guard);
 
-                if let Some(sender) = sender {
+                let paired = self
+                    .device_manager
+                    .get_device(&device_id)
+                    .await
+                    .is_some_and(|device| device.pair_state == crate::device::PairState::Paired);
+                if let Some(sender) = sender.filter(|_| paired) {
                     debug!("sender available.");
                     let pkts = match ShareRequest::share_files(files_list).await {
                         Ok(pkts) => pkts,
@@ -539,6 +544,23 @@ impl KdeConnectCore {
                     }
 
                     debug!("file transfer tasks spawned.");
+                } else {
+                    for path in files_list {
+                        let filename = std::path::Path::new(&path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or(&path);
+                        FileTransfer::new(
+                            &device_id.0,
+                            filename,
+                            "upload",
+                            0,
+                            self.conn_tx.clone(),
+                        )
+                        .finish(&Err::<(), _>(anyhow::anyhow!(
+                            "Device is offline or unpaired"
+                        )));
+                    }
                 }
                 // guard already dropped above — skip the implicit drop at end of match
                 return;

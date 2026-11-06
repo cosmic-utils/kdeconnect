@@ -325,6 +325,15 @@ impl DaemonInterface {
             device_id,
             files.len()
         );
+        let devices = self.devices.lock().await;
+        if !devices
+            .get(&device_id)
+            .is_some_and(|device| device.is_paired && device.is_reachable)
+        {
+            return Err(zbus::fdo::Error::Failed(
+                "Device is offline or unpaired".into(),
+            ));
+        }
         self.event_sender
             .send(AppEvent::SendFiles((DeviceId(device_id), files)))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
@@ -1699,6 +1708,42 @@ impl KdeConnectService {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn send_files_rejects_missing_unpaired_and_offline_devices() {
+        let (sender, mut events) = mpsc::unbounded_channel();
+        let daemon = DaemonInterface {
+            event_sender: Arc::new(sender),
+            devices: Arc::new(Mutex::new(HashMap::new())),
+            pairing_requests: Mutex::new(HashMap::new()),
+            clipboard: None,
+        };
+        assert!(
+            daemon
+                .send_files("phone".into(), vec!["file".into()])
+                .await
+                .is_err()
+        );
+        for (paired, reachable) in [(false, true), (true, false), (true, true)] {
+            daemon.devices.lock().await.insert(
+                "phone".into(),
+                DbusDevice {
+                    id: "phone".into(),
+                    name: "Phone".into(),
+                    device_type: "phone".into(),
+                    is_paired: paired,
+                    is_reachable: reachable,
+                },
+            );
+            let result = daemon.send_files("phone".into(), vec!["file".into()]).await;
+            assert_eq!(result.is_ok(), paired && reachable);
+        }
+        assert!(
+            matches!(events.try_recv(), Ok(AppEvent::SendFiles((id, files)))
+            if id.0 == "phone" && files == ["file"])
+        );
+        assert!(events.try_recv().is_err());
+    }
 
     #[tokio::test]
     async fn pending_requests_survive_reads_until_answered() {
