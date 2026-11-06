@@ -109,7 +109,8 @@ impl SmsAttachmentFile {
         let mut remote_addr = device.address;
         remote_addr.set_port(info.port);
 
-        crate::transport::receive_payload(&device.device_id, &remote_addr, &dest, None).await?;
+        crate::transport::receive_payload(&device.device_id, &remote_addr, &dest, None, None)
+            .await?;
         Ok(dest)
     }
 }

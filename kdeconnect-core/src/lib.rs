@@ -11,11 +11,11 @@ use tracing::{debug, info};
 use crate::{
     device::{Device, DeviceId, DeviceManager},
     event::{AppEvent, ConnectionEvent, CoreEvent},
-    filetransfer::TransferAdapter,
+    filetransfer::{FileTransfer, TransferAdapter},
     pairing::PairingManager,
     plugin_interface::PluginRegistry,
     plugins::{ping::Ping, share::ShareRequest},
-    protocol::{DeviceFile, DevicePayload, Pair},
+    protocol::{DeviceFile, Pair},
     transport::{TcpTransport, TransportEvent, UdpTransport},
 };
 
@@ -246,7 +246,7 @@ impl KdeConnectCore {
 
                 if let Some(sender) = guard.get(&device) {
                     self.plugin_registry
-                        .send_payload(packet, sender, transfer_adapter, payload_size)
+                        .send_payload(packet, sender, transfer_adapter, payload_size, None)
                         .await;
                 }
             }
@@ -490,23 +490,44 @@ impl KdeConnectCore {
 
                 if let Some(sender) = sender {
                     debug!("sender available.");
-                    let pkts = ShareRequest::share_files(files_list)
-                        .await
-                        .expect("creating share request");
+                    let pkts = match ShareRequest::share_files(files_list).await {
+                        Ok(pkts) => pkts,
+                        Err(error) => {
+                            tracing::warn!("Could not prepare shared files: {error}");
+                            return;
+                        }
+                    };
                     for (pkt_body, path) in pkts {
+                        let ShareRequest::File(ref request) = pkt_body else {
+                            continue;
+                        };
+                        let file = match DeviceFile::open(&path).await {
+                            Ok(file) => file,
+                            Err(error) => {
+                                FileTransfer::new(
+                                    &device_id.0,
+                                    &request.filename,
+                                    "upload",
+                                    0,
+                                    self.conn_tx.clone(),
+                                )
+                                .finish(&Err::<(), _>(error));
+                                continue;
+                            }
+                        };
+                        let progress = FileTransfer::new(
+                            &device_id.0,
+                            &request.filename,
+                            "upload",
+                            file.size,
+                            self.conn_tx.clone(),
+                        );
                         let packet = ProtocolPacket::new(
                             PacketType::ShareRequest,
                             serde_json::to_value(pkt_body).expect("serializing packet body"),
                         );
-                        let file = DeviceFile::open(path).await.expect("opening file");
-                        let payload = DevicePayload::from(file);
-                        //
-                        // crate transfer adapter to get file transfer progress
-                        let transfer_adapter =
-                            TransferAdapter::new(payload.buf, payload.size, self.conn_tx.clone());
-
                         self.plugin_registry
-                            .send_payload(packet, &sender, transfer_adapter, payload.size)
+                            .send_payload(packet, &sender, file.buf, file.size, Some(progress))
                             .await;
                     }
 

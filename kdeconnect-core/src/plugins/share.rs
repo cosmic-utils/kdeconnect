@@ -10,6 +10,7 @@ use tracing::{info, warn};
 use crate::{
     device::Device,
     event::ConnectionEvent,
+    filetransfer::FileTransfer,
     protocol::{PacketPayloadTransferInfo, PacketType, ProtocolPacket},
     transport::receive_payload,
 };
@@ -72,9 +73,21 @@ impl ShareRequest {
     ) -> anyhow::Result<()> {
         match self {
             ShareRequest::File(f) => {
-                let path = self
-                    .handle_file_request(f, device, info, payload_size)
-                    .await?;
+                let mut progress = FileTransfer::new(
+                    &device.device_id.0,
+                    &f.filename,
+                    "download",
+                    payload_size.unwrap_or(0),
+                    events.clone(),
+                );
+                let result = self
+                    .handle_file_request(f, device, info, payload_size, &mut progress)
+                    .await;
+                if let Ok(path) = &result {
+                    progress.set_path(path);
+                }
+                progress.finish(&result);
+                let path = result?;
                 let _ = events.send(ConnectionEvent::FileReceived((
                     device.device_id.clone(),
                     path,
@@ -122,6 +135,7 @@ impl ShareRequest {
         device: &Device,
         info: Option<&PacketPayloadTransferInfo>,
         payload_size: Option<u64>,
+        progress: &mut FileTransfer,
     ) -> anyhow::Result<PathBuf> {
         validate_filename(&request.filename)?;
         let download_dir = dirs::download_dir().unwrap_or_else(|| {
@@ -140,6 +154,7 @@ impl ShareRequest {
                 &remote_addr,
                 &temporary.path().to_path_buf(),
                 payload_size,
+                Some(progress),
             )
             .await?;
         } else {
@@ -156,9 +171,7 @@ impl ShareRequest {
                 .summary(&format!("File received: {}", filename))
                 .body(&dest_display)
                 .show();
-        })
-        .await
-        .ok();
+        });
 
         Ok(dest)
     }

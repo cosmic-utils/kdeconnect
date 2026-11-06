@@ -83,6 +83,7 @@ pub enum ConnectionEvent {
     ContactsReceived(HashMap<String, String>),
     /// A shared file was fully saved. Payload is (device_id, local path).
     FileReceived((DeviceId, std::path::PathBuf)),
+    FileTransferProgress(crate::filetransfer::TransferInfo),
     UpdateTransferProgress(u8),
     /// Phone sent pair:true and is waiting for user decision.
     /// Payload is (device_id, device_name).

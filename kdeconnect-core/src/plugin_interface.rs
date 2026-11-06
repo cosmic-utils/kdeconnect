@@ -12,7 +12,7 @@ use crate::{
     GLOBAL_CONFIG,
     device::Device,
     event::{ConnectionEvent, CoreEvent},
-    filetransfer::{TransferAdapter, send_progress},
+    filetransfer::{FileTransfer, copy_payload},
     plugins::{
         self,
         battery::Battery,
@@ -432,95 +432,69 @@ impl PluginRegistry {
     /// background task so the event loop is never blocked.
     pub async fn send_payload(
         &self,
-        packet: ProtocolPacket,
+        mut packet: ProtocolPacket,
         device_writer: &mpsc::UnboundedSender<ProtocolPacket>,
-        mut payload: TransferAdapter<impl AsyncRead + Sync + Send + Unpin + 'static>,
+        mut payload: impl AsyncRead + Sync + Send + Unpin + 'static,
         payload_size: u64,
+        mut progress: Option<FileTransfer>,
     ) {
-        info!("preparing payload transfer");
-
-        let free_listener = match prepare_listener_for_payload().await {
-            Ok(l) => l,
-            Err(e) => {
-                warn!("cannot find free port: {}", e);
-                return;
-            }
-        };
-
-        let addr = match free_listener.local_addr() {
-            Ok(a) => a,
-            Err(e) => {
-                warn!("cannot get local addr for payload listener: {}", e);
-                return;
-            }
-        };
-
-        debug!("payload listener bound on {}", addr);
-        let payload_transfer_info = Some(PacketPayloadTransferInfo { port: addr.port() });
-        let body = packet.body.clone();
-
-        // Enqueue the packet with the port info NOW — the phone needs this to
-        // know where to connect. This is non-blocking (channel send).
-        match packet.packet_type {
-            PacketType::Mpris => {
-                if let Ok(mpris) = serde_json::from_value::<plugins::mpris::Mpris>(body) {
-                    debug!("got mpris packet, sending info.");
-                    let _ = mpris
-                        .send_art(device_writer, payload_size, payload_transfer_info)
-                        .await;
-                }
-            }
-            PacketType::ShareRequest => {
-                if let Ok(share_request) =
-                    serde_json::from_value::<plugins::share::ShareRequest>(body)
-                {
-                    debug!("got share request packet, sending info.");
-                    let _ = share_request
-                        .send_file(device_writer, payload_size, payload_transfer_info)
-                        .await;
-                }
-            }
-            _ => {
-                warn!(
-                    "[payload] No plugin found to handle packet type: {:?}",
-                    packet.packet_type
-                );
-                return;
-            }
+        let prepared: anyhow::Result<_> = async {
+            anyhow::ensure!(
+                matches!(
+                    packet.packet_type,
+                    PacketType::Mpris | PacketType::ShareRequest
+                ),
+                "Unsupported payload packet"
+            );
+            let listener = prepare_listener_for_payload()
+                .await
+                .map_err(anyhow::Error::msg)?;
+            packet.payload_transfer_info = Some(PacketPayloadTransferInfo {
+                port: listener.local_addr()?.port(),
+            });
+            packet.payload_size = Some(payload_size);
+            device_writer.send(packet)?;
+            Ok(listener)
         }
+        .await;
+        let listener = match prepared {
+            Ok(listener) => listener,
+            Err(error) => {
+                warn!("[payload] could not prepare transfer: {error}");
+                let result: anyhow::Result<()> = Err(error);
+                if let Some(progress) = &mut progress {
+                    progress.finish(&result);
+                }
+                return;
+            }
+        };
 
-        // Spawn the accept + copy so the event loop stays responsive for the
-        // entire duration of the file transfer.
         let server_config = GLOBAL_CONFIG.get().unwrap().key_store.server_config.clone();
         tokio::spawn(async move {
-            let (incoming, peer_addr) = match free_listener.accept().await {
-                Ok(res) => res,
-                Err(e) => {
-                    warn!("[payload] accepting connection failed: {}", e);
-                    return;
-                }
-            };
-            debug!("[payload] incoming connection from {}", peer_addr);
-
-            let mut stream = match tokio_rustls::TlsAcceptor::from(server_config)
-                .accept(incoming)
-                .await
-            {
-                Ok(s) => s,
-                Err(e) => {
-                    warn!("[payload] TLS handshake failed: {}", e);
-                    return;
-                }
-            };
-
-            debug!("[payload] TLS accepted, copying payload");
-            let _ = tokio::io::copy(&mut payload, &mut stream).await;
-            let _ = stream.flush().await;
-            let _ = stream.shutdown().await;
-            // Guarantee a final 100% progress event so the UI always clears
-            // regardless of file size or interval timing.
-            send_progress(100, payload.notify_tx.clone());
-            info!("[payload] successfully sent payload to {}", peer_addr);
+            let result: anyhow::Result<()> = async {
+                let (incoming, _) =
+                    tokio::time::timeout(std::time::Duration::from_secs(30), listener.accept())
+                        .await??;
+                let acceptor = tokio_rustls::TlsAcceptor::from(server_config);
+                let mut stream = tokio::time::timeout(
+                    std::time::Duration::from_secs(30),
+                    acceptor.accept(incoming),
+                )
+                .await??;
+                let expected_size = progress.as_ref().map(|_| payload_size);
+                copy_payload(&mut payload, &mut stream, expected_size, progress.as_mut()).await?;
+                // A receiver may close immediately after consuming the declared payload.
+                let _ = tokio::time::timeout(std::time::Duration::from_secs(3), stream.shutdown())
+                    .await;
+                Ok(())
+            }
+            .await;
+            if let Some(progress) = &mut progress {
+                progress.finish(&result);
+            }
+            if let Err(error) = result {
+                warn!("[payload] transfer failed: {error}");
+            }
         });
     }
 

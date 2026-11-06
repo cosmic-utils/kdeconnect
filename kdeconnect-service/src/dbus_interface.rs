@@ -502,6 +502,12 @@ impl DaemonInterface {
     ) -> zbus::Result<()>;
 
     #[zbus(signal)]
+    async fn file_transfer_progress(
+        signal_emitter: &SignalEmitter<'_>,
+        progress: kdeconnect_core::filetransfer::TransferInfo,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
     async fn device_connected(
         signal_emitter: &SignalEmitter<'_>,
         device_id: String,
@@ -1397,6 +1403,14 @@ impl KdeConnectService {
                     path.to_string_lossy().into_owned(),
                 )
                 .await?;
+            }
+            ConnectionEvent::FileTransferProgress(progress) => {
+                let iface_ref = connection
+                    .object_server()
+                    .interface::<_, DaemonInterface>(DAEMON_PATH)
+                    .await?;
+                DaemonInterface::file_transfer_progress(iface_ref.signal_emitter(), progress)
+                    .await?;
             }
             ConnectionEvent::UpdateTransferProgress(progress) => {
                 info!("Current transfer progress: {}%", progress);
