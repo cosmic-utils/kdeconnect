@@ -324,9 +324,7 @@ impl KdeConnectCore {
                                 if !pair_body.pair {
                                     // Phone sent pair:false — either it's unpairing from us, or
                                     // it's a fresh device announcing it doesn't know us yet.
-                                    // Only clean up and notify if we considered it paired; fresh
-                                    // discovery announcements should be ignored silently so the
-                                    // user can still initiate pairing normally from the settings app.
+                                    // Fresh discovery announcements leave NotPaired unchanged.
                                     self.pending_pair.lock().await.remove(&id);
                                     if device.pair_state == crate::device::PairState::Paired {
                                         info!(
@@ -345,6 +343,15 @@ impl KdeConnectCore {
                                             crate::device::PairState::NotPaired,
                                         ));
                                         self.broadcast_conn_event(conn_event);
+                                    } else if device.pair_state
+                                        != crate::device::PairState::NotPaired
+                                    {
+                                        self.device_manager
+                                            .update_pair_state(
+                                                &id,
+                                                crate::device::PairState::NotPaired,
+                                            )
+                                            .await;
                                     } else {
                                         info!(
                                             "[core] pair:false from {} — device not paired, ignoring",

@@ -72,6 +72,7 @@ pub enum ServiceEvent {
 )]
 trait Daemon {
     async fn list_devices(&self) -> zbus::Result<Vec<Device>>;
+    async fn pending_pairing_requests(&self) -> zbus::Result<Vec<(String, String)>>;
     async fn pair_device(&self, device_id: &str) -> zbus::Result<()>;
     async fn unpair_device(&self, device_id: &str) -> zbus::Result<()>;
     async fn send_ping(&self, device_id: &str, message: &str) -> zbus::Result<()>;
@@ -229,6 +230,11 @@ impl KdeConnectClient {
     /// List all devices
     pub async fn list_devices(&self) -> Result<Vec<Device>> {
         Ok(self.daemon_proxy.list_devices().await?)
+    }
+
+    /// Incoming pairing requests that have not been answered.
+    pub async fn pending_pairing_requests(&self) -> Result<Vec<(String, String)>> {
+        Ok(self.daemon_proxy.pending_pairing_requests().await?)
     }
 
     /// Pair with a device

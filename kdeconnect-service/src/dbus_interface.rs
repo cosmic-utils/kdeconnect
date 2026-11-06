@@ -163,6 +163,7 @@ pub(crate) async fn load_sms_cache(device_id: &str) -> Option<String> {
 pub struct DaemonInterface {
     event_sender: Arc<mpsc::UnboundedSender<AppEvent>>,
     devices: Arc<Mutex<HashMap<String, DbusDevice>>>,
+    pairing_requests: Mutex<HashMap<String, String>>,
     clipboard: Option<ClipboardHandle>,
 }
 
@@ -272,6 +273,18 @@ impl DaemonInterface {
         let device_list: Vec<DbusDevice> = devices.values().cloned().collect();
         info!("D-Bus: Returning {} devices", device_list.len());
         device_list
+    }
+
+    async fn pending_pairing_requests(&self) -> Vec<(String, String)> {
+        let mut requests: Vec<_> = self
+            .pairing_requests
+            .lock()
+            .await
+            .iter()
+            .map(|(id, name)| (id.clone(), name.clone()))
+            .collect();
+        requests.sort();
+        requests
     }
 
     /// Pair with a device
@@ -461,9 +474,10 @@ impl DaemonInterface {
         info!("D-Bus: AcceptPairing called for {}", device_id);
         self.event_sender
             .send(AppEvent::AcceptPairing(kdeconnect_core::device::DeviceId(
-                device_id,
+                device_id.clone(),
             )))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        self.pairing_requests.lock().await.remove(&device_id);
         Ok(())
     }
 
@@ -472,9 +486,10 @@ impl DaemonInterface {
         info!("D-Bus: RejectPairing called for {}", device_id);
         self.event_sender
             .send(AppEvent::RejectPairing(kdeconnect_core::device::DeviceId(
-                device_id,
+                device_id.clone(),
             )))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        self.pairing_requests.lock().await.remove(&device_id);
         Ok(())
     }
 
@@ -933,6 +948,7 @@ impl KdeConnectService {
         let daemon_interface = DaemonInterface {
             event_sender: event_sender.clone(),
             devices: devices.clone(),
+            pairing_requests: Mutex::new(HashMap::new()),
             clipboard: clipboard.clone(),
         };
         connection
@@ -1266,6 +1282,13 @@ impl KdeConnectService {
                     .interface::<_, DaemonInterface>(DAEMON_PATH)
                     .await?;
 
+                iface_ref
+                    .get()
+                    .await
+                    .pairing_requests
+                    .lock()
+                    .await
+                    .remove(&device_id.0);
                 DaemonInterface::device_disconnected(
                     iface_ref.signal_emitter(),
                     device_id.0.clone(),
@@ -1299,6 +1322,15 @@ impl KdeConnectService {
                     .object_server()
                     .interface::<_, DaemonInterface>(DAEMON_PATH)
                     .await?;
+                if pair_state != PairState::Requested {
+                    iface_ref
+                        .get()
+                        .await
+                        .pairing_requests
+                        .lock()
+                        .await
+                        .remove(&device_id.0);
+                }
                 if let Some(dev) = devices.lock().await.get(&device_id.0).cloned() {
                     DaemonInterface::device_connected(
                         iface_ref.signal_emitter(),
@@ -1433,6 +1465,13 @@ impl KdeConnectService {
                     .object_server()
                     .interface::<_, DaemonInterface>(DAEMON_PATH)
                     .await?;
+                iface_ref
+                    .get()
+                    .await
+                    .pairing_requests
+                    .lock()
+                    .await
+                    .insert(device_id.0.clone(), device_name.clone());
                 DaemonInterface::pairing_requested(
                     iface_ref.signal_emitter(),
                     device_id.0.clone(),
@@ -1654,5 +1693,40 @@ impl KdeConnectService {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn pending_requests_survive_reads_until_answered() {
+        let (sender, mut events) = mpsc::unbounded_channel();
+        let daemon = DaemonInterface {
+            event_sender: Arc::new(sender),
+            devices: Arc::new(Mutex::new(HashMap::new())),
+            pairing_requests: Mutex::new(HashMap::from([
+                ("first".into(), "Phone".into()),
+                ("second".into(), "Tablet".into()),
+            ])),
+            clipboard: None,
+        };
+        let requests = daemon.pending_pairing_requests().await;
+        assert_eq!(requests.len(), 2);
+        assert_eq!(daemon.pending_pairing_requests().await, requests);
+        daemon.accept_pairing("first".into()).await.unwrap();
+        assert!(
+            matches!(events.recv().await, Some(AppEvent::AcceptPairing(id)) if id.0 == "first")
+        );
+        assert_eq!(
+            daemon.pending_pairing_requests().await,
+            vec![("second".into(), "Tablet".into())]
+        );
+        daemon.reject_pairing("second".into()).await.unwrap();
+        assert!(
+            matches!(events.recv().await, Some(AppEvent::RejectPairing(id)) if id.0 == "second")
+        );
+        assert!(daemon.pending_pairing_requests().await.is_empty());
     }
 }
