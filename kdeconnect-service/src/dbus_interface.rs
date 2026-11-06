@@ -510,6 +510,12 @@ impl DaemonInterface {
         device_name: String,
     ) -> zbus::Result<()>;
 
+    #[zbus(signal)]
+    async fn pairing_cancelled(
+        signal_emitter: &SignalEmitter<'_>,
+        device_id: String,
+    ) -> zbus::Result<()>;
+
     /// Signal: Device connected
     #[zbus(signal)]
     async fn update_transfer_progress(
@@ -1339,6 +1345,13 @@ impl KdeConnectService {
                         .lock()
                         .await
                         .remove(&device_id.0);
+                }
+                if pair_state == PairState::NotPaired {
+                    DaemonInterface::pairing_cancelled(
+                        iface_ref.signal_emitter(),
+                        device_id.0.clone(),
+                    )
+                    .await?;
                 }
                 if let Some(dev) = devices.lock().await.get(&device_id.0).cloned() {
                     DaemonInterface::device_connected(
