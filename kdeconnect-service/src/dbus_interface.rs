@@ -163,6 +163,7 @@ pub(crate) async fn load_sms_cache(device_id: &str) -> Option<String> {
 pub struct DaemonInterface {
     event_sender: Arc<mpsc::UnboundedSender<AppEvent>>,
     devices: Arc<Mutex<HashMap<String, DbusDevice>>>,
+    pairing_requests: Mutex<HashMap<String, String>>,
     clipboard: Option<ClipboardHandle>,
 }
 
@@ -274,6 +275,18 @@ impl DaemonInterface {
         device_list
     }
 
+    async fn pending_pairing_requests(&self) -> Vec<(String, String)> {
+        let mut requests: Vec<_> = self
+            .pairing_requests
+            .lock()
+            .await
+            .iter()
+            .map(|(id, name)| (id.clone(), name.clone()))
+            .collect();
+        requests.sort();
+        requests
+    }
+
     /// Pair with a device
     async fn pair_device(&self, device_id: String) -> zbus::fdo::Result<()> {
         info!("D-Bus: PairDevice called for {}", device_id);
@@ -312,6 +325,15 @@ impl DaemonInterface {
             device_id,
             files.len()
         );
+        let devices = self.devices.lock().await;
+        if !devices
+            .get(&device_id)
+            .is_some_and(|device| device.is_paired && device.is_reachable)
+        {
+            return Err(zbus::fdo::Error::Failed(
+                "Device is offline or unpaired".into(),
+            ));
+        }
         self.event_sender
             .send(AppEvent::SendFiles((DeviceId(device_id), files)))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
@@ -461,9 +483,10 @@ impl DaemonInterface {
         info!("D-Bus: AcceptPairing called for {}", device_id);
         self.event_sender
             .send(AppEvent::AcceptPairing(kdeconnect_core::device::DeviceId(
-                device_id,
+                device_id.clone(),
             )))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        self.pairing_requests.lock().await.remove(&device_id);
         Ok(())
     }
 
@@ -472,9 +495,10 @@ impl DaemonInterface {
         info!("D-Bus: RejectPairing called for {}", device_id);
         self.event_sender
             .send(AppEvent::RejectPairing(kdeconnect_core::device::DeviceId(
-                device_id,
+                device_id.clone(),
             )))
             .map_err(|e| zbus::fdo::Error::Failed(e.to_string()))?;
+        self.pairing_requests.lock().await.remove(&device_id);
         Ok(())
     }
 
@@ -486,11 +510,31 @@ impl DaemonInterface {
         device_name: String,
     ) -> zbus::Result<()>;
 
+    #[zbus(signal)]
+    async fn pairing_cancelled(
+        signal_emitter: &SignalEmitter<'_>,
+        device_id: String,
+    ) -> zbus::Result<()>;
+
     /// Signal: Device connected
     #[zbus(signal)]
     async fn update_transfer_progress(
         signal_emitter: &SignalEmitter<'_>,
         progress: u8,
+    ) -> zbus::Result<()>;
+
+    /// A shared file is complete and available at the local path.
+    #[zbus(signal)]
+    async fn file_received(
+        signal_emitter: &SignalEmitter<'_>,
+        device_id: String,
+        path: String,
+    ) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn file_transfer_progress(
+        signal_emitter: &SignalEmitter<'_>,
+        progress: kdeconnect_core::filetransfer::TransferInfo,
     ) -> zbus::Result<()>;
 
     #[zbus(signal)]
@@ -919,6 +963,7 @@ impl KdeConnectService {
         let daemon_interface = DaemonInterface {
             event_sender: event_sender.clone(),
             devices: devices.clone(),
+            pairing_requests: Mutex::new(HashMap::new()),
             clipboard: clipboard.clone(),
         };
         connection
@@ -1252,6 +1297,13 @@ impl KdeConnectService {
                     .interface::<_, DaemonInterface>(DAEMON_PATH)
                     .await?;
 
+                iface_ref
+                    .get()
+                    .await
+                    .pairing_requests
+                    .lock()
+                    .await
+                    .remove(&device_id.0);
                 DaemonInterface::device_disconnected(
                     iface_ref.signal_emitter(),
                     device_id.0.clone(),
@@ -1285,6 +1337,22 @@ impl KdeConnectService {
                     .object_server()
                     .interface::<_, DaemonInterface>(DAEMON_PATH)
                     .await?;
+                if pair_state != PairState::Requested {
+                    iface_ref
+                        .get()
+                        .await
+                        .pairing_requests
+                        .lock()
+                        .await
+                        .remove(&device_id.0);
+                }
+                if pair_state == PairState::NotPaired {
+                    DaemonInterface::pairing_cancelled(
+                        iface_ref.signal_emitter(),
+                        device_id.0.clone(),
+                    )
+                    .await?;
+                }
                 if let Some(dev) = devices.lock().await.get(&device_id.0).cloned() {
                     DaemonInterface::device_connected(
                         iface_ref.signal_emitter(),
@@ -1378,6 +1446,26 @@ impl KdeConnectService {
                 .await?;
                 debug!("SmsAttachmentReceived D-Bus signal emitted");
             }
+            ConnectionEvent::FileReceived((device_id, path)) => {
+                let iface_ref = connection
+                    .object_server()
+                    .interface::<_, DaemonInterface>(DAEMON_PATH)
+                    .await?;
+                DaemonInterface::file_received(
+                    iface_ref.signal_emitter(),
+                    device_id.0,
+                    path.to_string_lossy().into_owned(),
+                )
+                .await?;
+            }
+            ConnectionEvent::FileTransferProgress(progress) => {
+                let iface_ref = connection
+                    .object_server()
+                    .interface::<_, DaemonInterface>(DAEMON_PATH)
+                    .await?;
+                DaemonInterface::file_transfer_progress(iface_ref.signal_emitter(), progress)
+                    .await?;
+            }
             ConnectionEvent::UpdateTransferProgress(progress) => {
                 info!("Current transfer progress: {}%", progress);
 
@@ -1399,6 +1487,13 @@ impl KdeConnectService {
                     .object_server()
                     .interface::<_, DaemonInterface>(DAEMON_PATH)
                     .await?;
+                iface_ref
+                    .get()
+                    .await
+                    .pairing_requests
+                    .lock()
+                    .await
+                    .insert(device_id.0.clone(), device_name.clone());
                 DaemonInterface::pairing_requested(
                     iface_ref.signal_emitter(),
                     device_id.0.clone(),
@@ -1620,5 +1715,76 @@ impl KdeConnectService {
         }
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn send_files_rejects_missing_unpaired_and_offline_devices() {
+        let (sender, mut events) = mpsc::unbounded_channel();
+        let daemon = DaemonInterface {
+            event_sender: Arc::new(sender),
+            devices: Arc::new(Mutex::new(HashMap::new())),
+            pairing_requests: Mutex::new(HashMap::new()),
+            clipboard: None,
+        };
+        assert!(
+            daemon
+                .send_files("phone".into(), vec!["file".into()])
+                .await
+                .is_err()
+        );
+        for (paired, reachable) in [(false, true), (true, false), (true, true)] {
+            daemon.devices.lock().await.insert(
+                "phone".into(),
+                DbusDevice {
+                    id: "phone".into(),
+                    name: "Phone".into(),
+                    device_type: "phone".into(),
+                    is_paired: paired,
+                    is_reachable: reachable,
+                },
+            );
+            let result = daemon.send_files("phone".into(), vec!["file".into()]).await;
+            assert_eq!(result.is_ok(), paired && reachable);
+        }
+        assert!(
+            matches!(events.try_recv(), Ok(AppEvent::SendFiles((id, files)))
+            if id.0 == "phone" && files == ["file"])
+        );
+        assert!(events.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn pending_requests_survive_reads_until_answered() {
+        let (sender, mut events) = mpsc::unbounded_channel();
+        let daemon = DaemonInterface {
+            event_sender: Arc::new(sender),
+            devices: Arc::new(Mutex::new(HashMap::new())),
+            pairing_requests: Mutex::new(HashMap::from([
+                ("first".into(), "Phone".into()),
+                ("second".into(), "Tablet".into()),
+            ])),
+            clipboard: None,
+        };
+        let requests = daemon.pending_pairing_requests().await;
+        assert_eq!(requests.len(), 2);
+        assert_eq!(daemon.pending_pairing_requests().await, requests);
+        daemon.accept_pairing("first".into()).await.unwrap();
+        assert!(
+            matches!(events.recv().await, Some(AppEvent::AcceptPairing(id)) if id.0 == "first")
+        );
+        assert_eq!(
+            daemon.pending_pairing_requests().await,
+            vec![("second".into(), "Tablet".into())]
+        );
+        daemon.reject_pairing("second".into()).await.unwrap();
+        assert!(
+            matches!(events.recv().await, Some(AppEvent::RejectPairing(id)) if id.0 == "second")
+        );
+        assert!(daemon.pending_pairing_requests().await.is_empty());
     }
 }

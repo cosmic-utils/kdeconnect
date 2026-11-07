@@ -1,4 +1,7 @@
-use std::{path::PathBuf, str::FromStr};
+use std::{
+    path::{Path, PathBuf},
+    str::FromStr,
+};
 
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
@@ -6,6 +9,8 @@ use tracing::{info, warn};
 
 use crate::{
     device::Device,
+    event::ConnectionEvent,
+    filetransfer::FileTransfer,
     protocol::{PacketPayloadTransferInfo, PacketType, ProtocolPacket},
     transport::receive_payload,
 };
@@ -62,10 +67,33 @@ impl ShareRequest {
     pub async fn receive_share(
         &self,
         device: &Device,
-        info: &PacketPayloadTransferInfo,
+        info: Option<&PacketPayloadTransferInfo>,
+        payload_size: Option<u64>,
+        events: mpsc::UnboundedSender<ConnectionEvent>,
     ) -> anyhow::Result<()> {
         match self {
-            ShareRequest::File(f) => self.handle_file_request(f, device, info).await,
+            ShareRequest::File(f) => {
+                let mut progress = FileTransfer::new(
+                    &device.device_id.0,
+                    &f.filename,
+                    "download",
+                    payload_size.unwrap_or(0),
+                    events.clone(),
+                );
+                let result = self
+                    .handle_file_request(f, device, info, payload_size, &mut progress)
+                    .await;
+                if let Ok(path) = &result {
+                    progress.set_path(path);
+                }
+                progress.finish(&result);
+                let path = result?;
+                let _ = events.send(ConnectionEvent::FileReceived((
+                    device.device_id.clone(),
+                    path,
+                )));
+                Ok(())
+            }
             ShareRequest::Text { text } => {
                 let text = text.clone();
                 tokio::task::spawn_blocking(move || {
@@ -105,36 +133,34 @@ impl ShareRequest {
         &self,
         request: &ShareRequestFile,
         device: &Device,
-        info: &PacketPayloadTransferInfo,
-    ) -> anyhow::Result<()> {
+        info: Option<&PacketPayloadTransferInfo>,
+        payload_size: Option<u64>,
+        progress: &mut FileTransfer,
+    ) -> anyhow::Result<PathBuf> {
+        validate_filename(&request.filename)?;
         let download_dir = dirs::download_dir().unwrap_or_else(|| {
             warn!("[share] cannot find Downloads dir, falling back to /tmp");
             PathBuf::from("/tmp")
         });
-
-        // Avoid overwriting existing files by appending a counter if needed.
-        let dest = unique_path(&download_dir, &request.filename);
-
-        let mut remote_addr = device.address;
-        remote_addr.set_port(info.port);
-        let domain = device.device_id.clone();
-
-        info!(
-            "[share] receiving '{}' from {} ({}:{})",
-            request.filename,
-            device.name,
-            remote_addr.ip(),
-            info.port
-        );
-
-        if let Err(e) = receive_payload(&domain, &remote_addr, &dest).await {
-            warn!(
-                "[share] receive_payload failed for '{}': {}",
-                request.filename, e
-            );
-            return Err(e);
+        tokio::fs::create_dir_all(&download_dir).await?;
+        let temporary = tempfile::Builder::new()
+            .prefix(".kdeconnect-")
+            .tempfile_in(&download_dir)?;
+        if let Some(info) = info {
+            let mut remote_addr = device.address;
+            remote_addr.set_port(info.port);
+            receive_payload(
+                &device.device_id,
+                &remote_addr,
+                &temporary.path().to_path_buf(),
+                payload_size,
+                Some(progress),
+            )
+            .await?;
+        } else {
+            anyhow::ensure!(payload_size == Some(0), "Missing file payload information");
         }
-
+        let dest = persist_received(temporary, &download_dir, &request.filename)?;
         info!("[share] saved '{}' to {:?}", request.filename, dest);
 
         let dest_display = dest.display().to_string();
@@ -145,39 +171,82 @@ impl ShareRequest {
                 .summary(&format!("File received: {}", filename))
                 .body(&dest_display)
                 .show();
-        })
-        .await
-        .ok();
+        });
 
-        Ok(())
+        Ok(dest)
     }
 }
 
-/// Returns a path that doesn't already exist by appending ` (N)` before the
-/// extension — e.g. `photo (1).jpg`, `photo (2).jpg`.
-fn unique_path(dir: &PathBuf, filename: &str) -> PathBuf {
-    let candidate = dir.join(filename);
-    if !candidate.exists() {
-        return candidate;
-    }
+fn validate_filename(filename: &str) -> anyhow::Result<()> {
+    anyhow::ensure!(
+        !filename.is_empty()
+            && filename != "."
+            && filename != ".."
+            && !filename.contains(['/', '\\', '\0']),
+        "Invalid shared filename"
+    );
+    Ok(())
+}
 
-    let stem = PathBuf::from(filename)
-        .file_stem()
-        .map(|s| s.to_string_lossy().into_owned())
-        .unwrap_or_else(|| filename.to_string());
-    let ext = PathBuf::from(filename)
+fn persist_received(
+    mut temporary: tempfile::NamedTempFile,
+    directory: &Path,
+    filename: &str,
+) -> anyhow::Result<PathBuf> {
+    let path = Path::new(filename);
+    let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+    let extension = path
         .extension()
-        .map(|e| format!(".{}", e.to_string_lossy()))
+        .map(|ext| format!(".{}", ext.to_string_lossy()))
         .unwrap_or_default();
-
-    for i in 1u32.. {
-        let candidate = dir.join(format!("{} ({}){}", stem, i, ext));
-        if !candidate.exists() {
-            return candidate;
+    for index in 0u64.. {
+        let name = if index == 0 {
+            filename.to_owned()
+        } else {
+            format!("{stem} ({index}){extension}")
+        };
+        let dest = directory.join(name);
+        match temporary.persist_noclobber(&dest) {
+            Ok(_) => return Ok(dest),
+            Err(error) if error.error.kind() == std::io::ErrorKind::AlreadyExists => {
+                temporary = error.file;
+            }
+            Err(error) => return Err(error.error.into()),
         }
     }
+    unreachable!()
+}
 
-    dir.join(filename)
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::io::Write;
+
+    #[test]
+    fn received_files_reject_paths_and_keep_existing_files() {
+        for name in [
+            "",
+            ".",
+            "..",
+            "../photo.jpg",
+            "/photo.jpg",
+            "dir\\photo.jpg",
+            "a\0b",
+        ] {
+            assert!(validate_filename(name).is_err());
+        }
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(directory.path().join("photo.jpg"), b"original").unwrap();
+        let mut received = tempfile::NamedTempFile::new_in(directory.path()).unwrap();
+        received.write_all(b"received").unwrap();
+        let saved = persist_received(received, directory.path(), "photo.jpg").unwrap();
+        assert_eq!(
+            std::fs::read(directory.path().join("photo.jpg")).unwrap(),
+            b"original"
+        );
+        assert_eq!(saved, directory.path().join("photo (1).jpg"));
+        assert_eq!(std::fs::read(saved).unwrap(), b"received");
+    }
 }
 
 #[derive(Serialize, Deserialize, Clone, Debug)]

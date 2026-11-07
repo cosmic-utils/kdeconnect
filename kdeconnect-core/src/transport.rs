@@ -23,6 +23,7 @@ use tracing::{debug, error, info, warn};
 use crate::{
     GLOBAL_CONFIG,
     device::DeviceId,
+    filetransfer::{FileTransfer, copy_payload},
     plugin_config,
     protocol::{Identity, PacketType, ProtocolPacket},
 };
@@ -693,28 +694,53 @@ pub(crate) async fn receive_payload(
     domain: &DeviceId,
     addr: &SocketAddr,
     temp_file: &PathBuf,
+    expected_size: Option<u64>,
+    progress: Option<&mut FileTransfer>,
 ) -> anyhow::Result<()> {
     let config = GLOBAL_CONFIG.get().unwrap();
     let client_config = config.key_store.client_config.clone();
     debug!("client config created.");
 
-    let stream = TcpStream::connect(&addr).await?;
+    let stream = tokio::time::timeout(Duration::from_secs(30), TcpStream::connect(addr)).await??;
 
     let domain = ServerName::try_from(domain.0.as_str())?.to_owned();
 
-    let mut stream = tokio_rustls::TlsConnector::from(client_config)
-        .connect(domain, stream)
-        .await?;
+    let connector = tokio_rustls::TlsConnector::from(client_config);
+    let mut stream =
+        tokio::time::timeout(Duration::from_secs(30), connector.connect(domain, stream)).await??;
 
     debug!("connected");
 
-    if let Ok(mut save_path) = tokio::fs::File::create(&temp_file).await {
-        let _ = tokio::io::copy(&mut stream, &mut save_path).await;
-        let _ = stream.flush().await;
-        let _ = stream.shutdown().await;
-    }
+    let mut save_path = tokio::fs::File::create(temp_file).await?;
+    copy_payload(&mut stream, &mut save_path, expected_size, progress).await?;
 
     info!("successfully received payload");
 
     Ok(())
+}
+
+#[cfg(test)]
+mod payload_tests {
+    use super::copy_payload;
+
+    #[tokio::test]
+    async fn incomplete_payload_is_not_reported_as_saved() {
+        assert!(
+            copy_payload(&b"abc"[..], &mut Vec::new(), Some(4), None)
+                .await
+                .is_err()
+        );
+        let temporary = tempfile::NamedTempFile::new().unwrap();
+        let mut read_only = tokio::fs::File::open(temporary.path()).await.unwrap();
+        assert!(
+            copy_payload(&b"abc"[..], &mut read_only, Some(3), None)
+                .await
+                .is_err()
+        );
+        let mut saved = Vec::new();
+        copy_payload(&b"abc"[..], &mut saved, Some(3), None)
+            .await
+            .unwrap();
+        assert_eq!(saved, b"abc");
+    }
 }
