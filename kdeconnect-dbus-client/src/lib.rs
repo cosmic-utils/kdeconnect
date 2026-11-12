@@ -25,6 +25,21 @@ pub struct Device {
     pub is_reachable: bool,
 }
 
+/// Per-file progress. Direction is upload/download; state is
+/// transferring/completed/failed. Error is empty unless the transfer failed.
+#[derive(Debug, Clone, Serialize, Deserialize, zbus::zvariant::Type)]
+pub struct TransferInfo {
+    pub transfer_id: String,
+    pub device_id: String,
+    pub filename: String,
+    pub direction: String,
+    pub bytes_transferred: u64,
+    pub total_bytes: u64,
+    pub path: String,
+    pub state: String,
+    pub error: String,
+}
+
 /// Events from the D-Bus service
 #[derive(Debug, Clone)]
 pub enum ServiceEvent {
@@ -46,6 +61,7 @@ pub enum ServiceEvent {
     ContactPhotosReceived(HashMap<String, String>),
     /// (device_id, local file path)
     FileReceived(String, String),
+    FileTransferProgress(TransferInfo),
 }
 
 /// D-Bus proxy for daemon interface
@@ -56,6 +72,7 @@ pub enum ServiceEvent {
 )]
 trait Daemon {
     async fn list_devices(&self) -> zbus::Result<Vec<Device>>;
+    async fn pending_pairing_requests(&self) -> zbus::Result<Vec<(String, String)>>;
     async fn pair_device(&self, device_id: &str) -> zbus::Result<()>;
     async fn unpair_device(&self, device_id: &str) -> zbus::Result<()>;
     async fn send_ping(&self, device_id: &str, message: &str) -> zbus::Result<()>;
@@ -88,6 +105,9 @@ trait Daemon {
 
     #[zbus(signal)]
     async fn file_received(&self, device_id: String, path: String) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn file_transfer_progress(&self, progress: TransferInfo) -> zbus::Result<()>;
 
     #[zbus(signal)]
     async fn device_connected(&self, device_id: String, device: Device) -> zbus::Result<()>;
@@ -210,6 +230,11 @@ impl KdeConnectClient {
     /// List all devices
     pub async fn list_devices(&self) -> Result<Vec<Device>> {
         Ok(self.daemon_proxy.list_devices().await?)
+    }
+
+    /// Incoming pairing requests that have not been answered.
+    pub async fn pending_pairing_requests(&self) -> Result<Vec<(String, String)>> {
+        Ok(self.daemon_proxy.pending_pairing_requests().await?)
     }
 
     /// Pair with a device
@@ -631,6 +656,20 @@ impl KdeConnectClient {
                     }
                 });
 
+        let file_progress = self
+            .daemon_proxy
+            .receive_file_transfer_progress()
+            .await?
+            .filter_map(|signal| async move {
+                match signal.args() {
+                    Ok(args) => Some(ServiceEvent::FileTransferProgress(args.progress.clone())),
+                    Err(error) => {
+                        error!("Failed to parse FileTransferProgress signal: {error}");
+                        None
+                    }
+                }
+            });
+
         Ok(Box::pin(select_all(vec![
             Box::pin(connected) as futures::stream::BoxStream<'static, ServiceEvent>,
             Box::pin(paired),
@@ -647,6 +686,7 @@ impl KdeConnectClient {
             Box::pin(attachment),
             Box::pin(contact_photos),
             Box::pin(received_files),
+            Box::pin(file_progress),
         ])))
     }
 

@@ -259,7 +259,7 @@ pub async fn download_album_art(
     let mut remote_addr = device.address;
     remote_addr.set_port(info.port);
 
-    receive_payload(&device.device_id, &remote_addr, &dest, None).await?;
+    receive_payload(&device.device_id, &remote_addr, &dest, None, None).await?;
 
     Ok(dest.to_string_lossy().into_owned())
 }

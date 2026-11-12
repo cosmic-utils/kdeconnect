@@ -11,11 +11,11 @@ use tracing::{debug, info};
 use crate::{
     device::{Device, DeviceId, DeviceManager},
     event::{AppEvent, ConnectionEvent, CoreEvent},
-    filetransfer::TransferAdapter,
+    filetransfer::{FileTransfer, TransferAdapter},
     pairing::PairingManager,
     plugin_interface::PluginRegistry,
     plugins::{ping::Ping, share::ShareRequest},
-    protocol::{DeviceFile, DevicePayload, Pair},
+    protocol::{DeviceFile, Pair},
     transport::{TcpTransport, TransportEvent, UdpTransport},
 };
 
@@ -246,7 +246,7 @@ impl KdeConnectCore {
 
                 if let Some(sender) = guard.get(&device) {
                     self.plugin_registry
-                        .send_payload(packet, sender, transfer_adapter, payload_size)
+                        .send_payload(packet, sender, transfer_adapter, payload_size, None)
                         .await;
                 }
             }
@@ -324,9 +324,7 @@ impl KdeConnectCore {
                                 if !pair_body.pair {
                                     // Phone sent pair:false — either it's unpairing from us, or
                                     // it's a fresh device announcing it doesn't know us yet.
-                                    // Only clean up and notify if we considered it paired; fresh
-                                    // discovery announcements should be ignored silently so the
-                                    // user can still initiate pairing normally from the settings app.
+                                    // Fresh discovery announcements leave NotPaired unchanged.
                                     self.pending_pair.lock().await.remove(&id);
                                     if device.pair_state == crate::device::PairState::Paired {
                                         info!(
@@ -345,6 +343,15 @@ impl KdeConnectCore {
                                             crate::device::PairState::NotPaired,
                                         ));
                                         self.broadcast_conn_event(conn_event);
+                                    } else if device.pair_state
+                                        != crate::device::PairState::NotPaired
+                                    {
+                                        self.device_manager
+                                            .update_pair_state(
+                                                &id,
+                                                crate::device::PairState::NotPaired,
+                                            )
+                                            .await;
                                     } else {
                                         info!(
                                             "[core] pair:false from {} — device not paired, ignoring",
@@ -488,29 +495,72 @@ impl KdeConnectCore {
                 let sender = guard.get(&device_id).cloned();
                 drop(guard);
 
-                if let Some(sender) = sender {
+                let paired = self
+                    .device_manager
+                    .get_device(&device_id)
+                    .await
+                    .is_some_and(|device| device.pair_state == crate::device::PairState::Paired);
+                if let Some(sender) = sender.filter(|_| paired) {
                     debug!("sender available.");
-                    let pkts = ShareRequest::share_files(files_list)
-                        .await
-                        .expect("creating share request");
+                    let pkts = match ShareRequest::share_files(files_list).await {
+                        Ok(pkts) => pkts,
+                        Err(error) => {
+                            tracing::warn!("Could not prepare shared files: {error}");
+                            return;
+                        }
+                    };
                     for (pkt_body, path) in pkts {
+                        let ShareRequest::File(ref request) = pkt_body else {
+                            continue;
+                        };
+                        let file = match DeviceFile::open(&path).await {
+                            Ok(file) => file,
+                            Err(error) => {
+                                FileTransfer::new(
+                                    &device_id.0,
+                                    &request.filename,
+                                    "upload",
+                                    0,
+                                    self.conn_tx.clone(),
+                                )
+                                .finish(&Err::<(), _>(error));
+                                continue;
+                            }
+                        };
+                        let progress = FileTransfer::new(
+                            &device_id.0,
+                            &request.filename,
+                            "upload",
+                            file.size,
+                            self.conn_tx.clone(),
+                        );
                         let packet = ProtocolPacket::new(
                             PacketType::ShareRequest,
                             serde_json::to_value(pkt_body).expect("serializing packet body"),
                         );
-                        let file = DeviceFile::open(path).await.expect("opening file");
-                        let payload = DevicePayload::from(file);
-                        //
-                        // crate transfer adapter to get file transfer progress
-                        let transfer_adapter =
-                            TransferAdapter::new(payload.buf, payload.size, self.conn_tx.clone());
-
                         self.plugin_registry
-                            .send_payload(packet, &sender, transfer_adapter, payload.size)
+                            .send_payload(packet, &sender, file.buf, file.size, Some(progress))
                             .await;
                     }
 
                     debug!("file transfer tasks spawned.");
+                } else {
+                    for path in files_list {
+                        let filename = std::path::Path::new(&path)
+                            .file_name()
+                            .and_then(|name| name.to_str())
+                            .unwrap_or(&path);
+                        FileTransfer::new(
+                            &device_id.0,
+                            filename,
+                            "upload",
+                            0,
+                            self.conn_tx.clone(),
+                        )
+                        .finish(&Err::<(), _>(anyhow::anyhow!(
+                            "Device is offline or unpaired"
+                        )));
+                    }
                 }
                 // guard already dropped above — skip the implicit drop at end of match
                 return;
