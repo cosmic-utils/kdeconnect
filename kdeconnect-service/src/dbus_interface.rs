@@ -493,6 +493,14 @@ impl DaemonInterface {
         progress: u8,
     ) -> zbus::Result<()>;
 
+    /// A shared file is complete and available at the local path.
+    #[zbus(signal)]
+    async fn file_received(
+        signal_emitter: &SignalEmitter<'_>,
+        device_id: String,
+        path: String,
+    ) -> zbus::Result<()>;
+
     #[zbus(signal)]
     async fn device_connected(
         signal_emitter: &SignalEmitter<'_>,
@@ -1377,6 +1385,18 @@ impl KdeConnectService {
                 )
                 .await?;
                 debug!("SmsAttachmentReceived D-Bus signal emitted");
+            }
+            ConnectionEvent::FileReceived((device_id, path)) => {
+                let iface_ref = connection
+                    .object_server()
+                    .interface::<_, DaemonInterface>(DAEMON_PATH)
+                    .await?;
+                DaemonInterface::file_received(
+                    iface_ref.signal_emitter(),
+                    device_id.0,
+                    path.to_string_lossy().into_owned(),
+                )
+                .await?;
             }
             ConnectionEvent::UpdateTransferProgress(progress) => {
                 info!("Current transfer progress: {}%", progress);

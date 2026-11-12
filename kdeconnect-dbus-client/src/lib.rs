@@ -44,6 +44,8 @@ pub enum ServiceEvent {
     SmsAttachmentReceived(String, String),
     /// Phone -> base64-encoded photo
     ContactPhotosReceived(HashMap<String, String>),
+    /// (device_id, local file path)
+    FileReceived(String, String),
 }
 
 /// D-Bus proxy for daemon interface
@@ -83,6 +85,9 @@ trait Daemon {
 
     #[zbus(signal)]
     async fn update_transfer_progress(&self, progress: u8) -> zbus::Result<()>;
+
+    #[zbus(signal)]
+    async fn file_received(&self, device_id: String, path: String) -> zbus::Result<()>;
 
     #[zbus(signal)]
     async fn device_connected(&self, device_id: String, device: Device) -> zbus::Result<()>;
@@ -609,6 +614,23 @@ impl KdeConnectClient {
                 }
             });
 
+        let received_files =
+            self.daemon_proxy
+                .receive_file_received()
+                .await?
+                .filter_map(|signal| async move {
+                    match signal.args() {
+                        Ok(args) => Some(ServiceEvent::FileReceived(
+                            args.device_id.clone(),
+                            args.path.clone(),
+                        )),
+                        Err(error) => {
+                            error!("Failed to parse FileReceived signal: {error}");
+                            None
+                        }
+                    }
+                });
+
         Ok(Box::pin(select_all(vec![
             Box::pin(connected) as futures::stream::BoxStream<'static, ServiceEvent>,
             Box::pin(paired),
@@ -624,6 +646,7 @@ impl KdeConnectClient {
             Box::pin(mount_state),
             Box::pin(attachment),
             Box::pin(contact_photos),
+            Box::pin(received_files),
         ])))
     }
 
