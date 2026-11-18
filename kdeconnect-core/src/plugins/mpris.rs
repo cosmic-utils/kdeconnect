@@ -33,7 +33,7 @@ pub enum Mpris {
 
 impl Default for Mpris {
     fn default() -> Self {
-        Self::Info(MprisPlayer::new(None).expect("should not panic"))
+        Self::Info(MprisPlayer::default())
     }
 }
 
@@ -67,15 +67,6 @@ pub struct MprisPlayer {
 }
 
 impl MprisPlayer {
-    pub fn new(player_name: Option<&str>) -> anyhow::Result<Self> {
-        if player_name.is_none() {
-            Ok(Self::default())
-        } else {
-            let player = get_mpris_players(player_name)?;
-            Self::from_player(&player)
-        }
-    }
-
     fn from_player(player: &mpris::Player) -> anyhow::Result<Self> {
         let metadata = player.get_metadata()?;
 
@@ -218,26 +209,19 @@ fn trackable_players(
         .filter(|p| is_trackable_player(p.bus_name_trimmed())))
 }
 
-pub fn get_mpris_players(name: Option<&str>) -> anyhow::Result<mpris::Player> {
-    let player_finder = mpris::PlayerFinder::new()?;
-    if let Some(name) = name {
-        trackable_players(&player_finder)?
-            .find(|p| p.identity().eq_ignore_ascii_case(name))
-            .ok_or_else(|| anyhow::anyhow!("No MPRIS player found matching {}", name))
-    } else {
-        Ok(player_finder.find_active()?)
-    }
+pub fn find_player(name: &str) -> anyhow::Result<mpris::Player> {
+    trackable_players(&mpris::PlayerFinder::new()?)?
+        .find(|p| p.identity().eq_ignore_ascii_case(name))
+        .ok_or_else(|| anyhow::anyhow!("No MPRIS player found matching {}", name))
 }
 
-pub fn get_all_mpris_player_names() -> Vec<String> {
-    let finder = match mpris::PlayerFinder::new() {
-        Ok(f) => f,
-        Err(_) => return vec![],
-    };
-    match trackable_players(&finder) {
-        Ok(players) => players.map(|p| p.identity().to_string()).collect(),
-        Err(_) => vec![],
-    }
+/// Identities of the trackable players. Fails if the bus could not be
+/// listed, so callers can tell an error apart from "no players".
+pub fn get_all_mpris_player_names() -> anyhow::Result<Vec<String>> {
+    let finder = mpris::PlayerFinder::new()?;
+    Ok(trackable_players(&finder)?
+        .map(|p| p.identity().to_string())
+        .collect())
 }
 
 /// Downloads phone-sent album art (a `Mpris::TransferringArt` payload) to a
@@ -286,7 +270,14 @@ impl MprisRequest {
 
         if self.request_player_list == Some(true) {
             debug!("MPRIS Player list requested");
-            let player_list = get_all_mpris_player_names();
+            // On failure send nothing, so the phone keeps the list it has.
+            let player_list = match get_all_mpris_player_names() {
+                Ok(list) => list,
+                Err(e) => {
+                    tracing::warn!("Not sending MPRIS player list: {}", e);
+                    return;
+                }
+            };
             debug!("Sending player list: {:?}", player_list);
             let packet = ProtocolPacket::new(
                 PacketType::Mpris,
@@ -304,7 +295,8 @@ impl MprisRequest {
         }
 
         if let Some(player_name) = &self.player {
-            if let Ok(player) = get_mpris_players(Some(player_name)) {
+            let mut player_info = None;
+            if let Ok(player) = find_player(player_name) {
                 if let Some(seek_us) = self.seek {
                     let _ = player.seek(seek_us);
                 }
@@ -344,10 +336,17 @@ impl MprisRequest {
                         MprisAction::Previous => player.previous(),
                     };
                 }
+
+                if self.album_art_url.is_some()
+                    || self.request_now_playing == Some(true)
+                    || self.request_volume == Some(true)
+                {
+                    player_info = MprisPlayer::from_player(&player).ok();
+                }
             }
 
             if let Some(album_art_url) = &self.album_art_url {
-                let Ok(player_info) = MprisPlayer::new(Some(player_name)) else {
+                let Some(player_info) = player_info else {
                     return;
                 };
                 let art = player_info.album_art_url.clone();
@@ -384,7 +383,7 @@ impl MprisRequest {
             }
 
             if (self.request_now_playing == Some(true) || self.request_volume == Some(true))
-                && let Ok(player_info) = MprisPlayer::new(Some(player_name))
+                && let Some(player_info) = player_info
             {
                 let construct_packet = ProtocolPacket::new(
                     PacketType::Mpris,
@@ -485,7 +484,10 @@ pub fn monitor_mpris(
                     paused_players.clear();
                 }
             }
-            let current_names = get_all_mpris_player_names();
+            // A failed listing is not "no players": keep the known list for this tick.
+            let current_names = get_all_mpris_player_names()
+                .inspect_err(|e| tracing::debug!("Failed to list MPRIS players: {}", e))
+                .unwrap_or_else(|_| known_players.clone());
 
             if current_names != known_players {
                 tracing::info!("MPRIS player list changed: {:?}", current_names);
@@ -526,14 +528,17 @@ pub fn monitor_mpris(
                 let ctx2 = core_tx.clone();
                 tokio::task::spawn_blocking(move || {
                     let _guard = WatchGuard(watched, name.clone());
-                    let player = match get_mpris_players(Some(&name)) {
+                    let player = match find_player(&name) {
                         Ok(p) => p,
-                        Err(_) => return,
+                        Err(e) => {
+                            tracing::warn!("MPRIS watcher could not find {}: {}", name, e);
+                            return;
+                        }
                     };
                     let events = match player.events() {
                         Ok(e) => e,
                         Err(e) => {
-                            tracing::debug!("Failed to get events for {}: {}", name, e);
+                            tracing::warn!("Failed to get MPRIS events for {}: {}", name, e);
                             return;
                         }
                     };
