@@ -1,9 +1,9 @@
 <!--suppress HtmlDeprecatedAttribute -->
 <div align="center">
   <p>A native KDE Connect implementation for the COSMIC Desktop, written in Rust.<br>
-  Many features are working, but remember to report any bugs you found via <a href="https://github.com/hepp3n/kdeconnect/issues">GitHub Issues</a>.</p>
+  Many features are working, but remember to report any bugs you found via <a href="https://github.com/cosmic-utils/kdeconnect/issues">GitHub Issues</a>.</p>
   <br>
-  <img alt="KDE Connect applet on COSMIC desktop environment" src="https://raw.githubusercontent.com/hepp3n/kdeconnect/refs/heads/master/resources/screenshots/applet.png" />
+  <img alt="KDE Connect applet on COSMIC desktop environment" src="https://raw.githubusercontent.com/cosmic-utils/kdeconnect/refs/heads/master/resources/screenshots/applet.png" />
 </div>
 
 ---
@@ -60,7 +60,7 @@ flatpak install --user io.github.hepp3n.kdeconnect
 ### Quick Start
 
 ```bash
-git clone https://github.com/hepp3n/kdeconnect.git
+git clone https://github.com/cosmic-utils/kdeconnect.git
 cd kdeconnect
 just build
 just install
