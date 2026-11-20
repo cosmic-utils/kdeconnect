@@ -16,6 +16,7 @@ pub enum Message {
     // From About page links open
     OpenRepository,
     OpenSupport,
+    OpenSponsor,
     OpenLicense,
 
     // Device actions

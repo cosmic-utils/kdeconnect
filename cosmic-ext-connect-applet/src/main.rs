@@ -16,6 +16,7 @@ use tracing::{debug, error, info, warn};
 
 const REPOSITORY_LINK: &str = "https://github.com/cosmic-utils/kdeconnect";
 const SUPPORT_LINK: &str = "https://github.com/cosmic-utils/kdeconnect/issues";
+const SPONSOR_LINK: &str = "https://ko-fi.com/elevenhsoft";
 const LICENSE_LINK: &str = "https://github.com/cosmic-utils/kdeconnect?tab=GPL-3.0-1-ov-file";
 
 pub struct KdeConnectApplet {
@@ -133,6 +134,9 @@ impl cosmic::Application for KdeConnectApplet {
             }
             Message::OpenSupport => {
                 let _ = open::that(SUPPORT_LINK);
+            }
+            Message::OpenSponsor => {
+                let _ = open::that(SPONSOR_LINK);
             }
             Message::OpenLicense => {
                 let _ = open::that(LICENSE_LINK);

@@ -538,6 +538,15 @@ pub fn about_view<'a>(core: &'a Core) -> Element<'static, Message> {
                     .push(widget::icon::from_name("link-symbolic").icon()),
             )
             .on_press(messages::Message::OpenSupport),
+        )
+        .add(
+            widget::list::button(
+                widget::row::with_capacity(3)
+                    .align_y(Alignment::Center)
+                    .push(widget::text::body("Help this project").width(Length::Fill))
+                    .push(widget::icon::from_name("link-symbolic").icon()),
+            )
+            .on_press(messages::Message::OpenSponsor),
         );
 
     content = content.push(links);
