@@ -1,8 +1,7 @@
 <!--suppress HtmlDeprecatedAttribute -->
 <div align="center">
-  <h1>⚠️ WORK IN PROGRESS</h1>
   <p>A native KDE Connect implementation for the COSMIC Desktop, written in Rust.<br>
-  Many features are working but you may encounter bugs — please report them via <a href="https://github.com/hepp3n/kdeconnect/issues">GitHub Issues</a>.</p>
+  Many features are working, but remember to report any bugs you found via <a href="https://github.com/hepp3n/kdeconnect/issues">GitHub Issues</a>.</p>
   <br>
   <img alt="KDE Connect applet on COSMIC desktop environment" src="https://raw.githubusercontent.com/hepp3n/kdeconnect/refs/heads/master/resources/screenshots/applet.png" />
 </div>
@@ -33,12 +32,9 @@
 
 <details>
 <summary>🚧 Plugins Not Yet Supported</summary>
-
-The following plugins require RTP which is not yet supported on the COSMIC Desktop.
 - MousePad / Remote Input
 - Presenter Mode
 - Virtual Display
-
 </details>
 
 ---
@@ -57,7 +53,8 @@ flatpak install --user io.github.hepp3n.kdeconnect
 ### Prerequisites
 
 - [rustup.rs](https://rustup.rs)
-- `libxkbcommon-dev` (required on some distros — if the build fails, install this first)
+- `libxkbcommon-dev`
+- `libdbus-1-dev`
 - [`just`](https://github.com/casey/just) command runner
 
 ### Quick Start
