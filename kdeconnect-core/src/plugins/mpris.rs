@@ -33,7 +33,7 @@ pub enum Mpris {
 
 impl Default for Mpris {
     fn default() -> Self {
-        Self::Info(MprisPlayer::new(None).expect("should not panic"))
+        Self::Info(MprisPlayer::default())
     }
 }
 
@@ -67,66 +67,61 @@ pub struct MprisPlayer {
 }
 
 impl MprisPlayer {
-    pub fn new(player_name: Option<&str>) -> anyhow::Result<Self> {
-        if player_name.is_none() {
-            Ok(Self::default())
-        } else {
-            let player = get_mpris_players(player_name)?;
-            let metadata = get_mpris_metadata(player_name)?;
+    fn from_player(player: &mpris::Player) -> anyhow::Result<Self> {
+        let metadata = player.get_metadata()?;
 
-            let artist = metadata
-                .artists()
-                .map_or("Unknown Artist".to_string(), |a| a.join(", "));
-            let title = metadata
-                .title()
-                .map_or("Unknown Title".to_string(), |t| t.to_string());
-            let album = metadata
-                .album_name()
-                .map_or("Unknown Album".to_string(), |al| al.to_string());
+        let artist = metadata
+            .artists()
+            .map_or("Unknown Artist".to_string(), |a| a.join(", "));
+        let title = metadata
+            .title()
+            .map_or("Unknown Title".to_string(), |t| t.to_string());
+        let album = metadata
+            .album_name()
+            .map_or("Unknown Album".to_string(), |al| al.to_string());
 
-            let album_art_url = metadata
-                .art_url()
-                .map_or("".to_string(), |url| url.to_string());
+        let album_art_url = metadata
+            .art_url()
+            .map_or("".to_string(), |url| url.to_string());
 
-            let length = metadata.length().map_or(0, |l| l.as_millis() as i32);
-            let volume = (player.get_volume().unwrap_or(1.0) * 100.0) as i32;
-            let can_pause = player.can_pause().unwrap_or(false);
-            let can_play = player.can_play().unwrap_or(false);
-            let can_go_next = player.can_go_next().unwrap_or(false);
-            let can_go_previous = player.can_go_previous().unwrap_or(false);
-            let can_seek = player.can_seek().unwrap_or(false);
-            // Correctly check playback status rather than process liveness.
-            let is_playing = player
-                .get_playback_status()
-                .map(|s| s == mpris::PlaybackStatus::Playing)
-                .unwrap_or(false);
-            let loop_status =
-                MprisLoopStatus::from(player.get_loop_status().unwrap_or(mpris::LoopStatus::None));
-            let shuffle = player.get_shuffle().unwrap_or(false);
-            let pos = player.get_position().map_or(0, |p| p.as_millis() as i32);
+        let length = metadata.length().map_or(0, |l| l.as_millis() as i32);
+        let volume = (player.get_volume().unwrap_or(1.0) * 100.0) as i32;
+        let can_pause = player.can_pause().unwrap_or(false);
+        let can_play = player.can_play().unwrap_or(false);
+        let can_go_next = player.can_go_next().unwrap_or(false);
+        let can_go_previous = player.can_go_previous().unwrap_or(false);
+        let can_seek = player.can_seek().unwrap_or(false);
+        // Correctly check playback status rather than process liveness.
+        let is_playing = player
+            .get_playback_status()
+            .map(|s| s == mpris::PlaybackStatus::Playing)
+            .unwrap_or(false);
+        let loop_status =
+            MprisLoopStatus::from(player.get_loop_status().unwrap_or(mpris::LoopStatus::None));
+        let shuffle = player.get_shuffle().unwrap_or(false);
+        let pos = player.get_position().map_or(0, |p| p.as_millis() as i32);
 
-            let player_ident = player.identity().to_string();
+        let player_ident = player.identity().to_string();
 
-            Ok(Self {
-                player: player_ident.clone(),
-                title: Some(title),
-                artist: Some(artist),
-                album: Some(album),
-                is_playing: Some(is_playing),
-                can_pause: Some(can_pause),
-                can_play: Some(can_play),
-                can_go_next: Some(can_go_next),
-                can_go_previous: Some(can_go_previous),
-                can_seek: Some(can_seek),
-                loop_status: Some(loop_status),
-                shuffle: Some(shuffle),
-                pos: Some(pos),
-                length: Some(length),
-                volume: Some(volume),
-                album_art_url: Some(album_art_url.clone()),
-                url: None,
-            })
-        }
+        Ok(Self {
+            player: player_ident.clone(),
+            title: Some(title),
+            artist: Some(artist),
+            album: Some(album),
+            is_playing: Some(is_playing),
+            can_pause: Some(can_pause),
+            can_play: Some(can_play),
+            can_go_next: Some(can_go_next),
+            can_go_previous: Some(can_go_previous),
+            can_seek: Some(can_seek),
+            loop_status: Some(loop_status),
+            shuffle: Some(shuffle),
+            pos: Some(pos),
+            length: Some(length),
+            volume: Some(volume),
+            album_art_url: Some(album_art_url.clone()),
+            url: None,
+        })
     }
 }
 
@@ -201,31 +196,32 @@ impl Mpris {
     }
 }
 
-pub fn get_mpris_players(name: Option<&str>) -> anyhow::Result<mpris::Player> {
-    let player_finder = mpris::PlayerFinder::new()?;
-    if let Some(name) = name {
-        Ok(player_finder.find_by_name(name)?)
-    } else {
-        Ok(player_finder.find_active()?)
-    }
+fn is_trackable_player(suffix: &str) -> bool {
+    suffix != "playerctld" && !suffix.starts_with("KDEConnect_")
 }
 
-pub fn get_mpris_metadata(name: Option<&str>) -> anyhow::Result<mpris::Metadata> {
-    Ok(get_mpris_players(name)?.get_metadata()?)
+fn trackable_players(
+    finder: &mpris::PlayerFinder,
+) -> anyhow::Result<impl Iterator<Item = mpris::Player>> {
+    Ok(finder
+        .iter_players()?
+        .filter_map(Result::ok)
+        .filter(|p| is_trackable_player(p.bus_name_trimmed())))
 }
 
-pub fn get_all_mpris_player_names() -> Vec<String> {
-    let finder = match mpris::PlayerFinder::new() {
-        Ok(f) => f,
-        Err(_) => return vec![],
-    };
-    match finder.find_all() {
-        Ok(players) => players
-            .into_iter()
-            .map(|p| p.identity().to_string())
-            .collect(),
-        Err(_) => vec![],
-    }
+pub fn find_player(name: &str) -> anyhow::Result<mpris::Player> {
+    trackable_players(&mpris::PlayerFinder::new()?)?
+        .find(|p| p.identity().eq_ignore_ascii_case(name))
+        .ok_or_else(|| anyhow::anyhow!("No MPRIS player found matching {}", name))
+}
+
+/// Identities of the trackable players. Fails if the bus could not be
+/// listed, so callers can tell an error apart from "no players".
+pub fn get_all_mpris_player_names() -> anyhow::Result<Vec<String>> {
+    let finder = mpris::PlayerFinder::new()?;
+    Ok(trackable_players(&finder)?
+        .map(|p| p.identity().to_string())
+        .collect())
 }
 
 /// Downloads phone-sent album art (a `Mpris::TransferringArt` payload) to a
@@ -274,7 +270,14 @@ impl MprisRequest {
 
         if self.request_player_list == Some(true) {
             debug!("MPRIS Player list requested");
-            let player_list = get_all_mpris_player_names();
+            // On failure send nothing, so the phone keeps the list it has.
+            let player_list = match get_all_mpris_player_names() {
+                Ok(list) => list,
+                Err(e) => {
+                    tracing::warn!("Not sending MPRIS player list: {}", e);
+                    return;
+                }
+            };
             debug!("Sending player list: {:?}", player_list);
             let packet = ProtocolPacket::new(
                 PacketType::Mpris,
@@ -292,7 +295,8 @@ impl MprisRequest {
         }
 
         if let Some(player_name) = &self.player {
-            if let Ok(player) = get_mpris_players(Some(player_name)) {
+            let mut player_info = None;
+            if let Ok(player) = find_player(player_name) {
                 if let Some(seek_us) = self.seek {
                     let _ = player.seek(seek_us);
                 }
@@ -332,10 +336,17 @@ impl MprisRequest {
                         MprisAction::Previous => player.previous(),
                     };
                 }
+
+                if self.album_art_url.is_some()
+                    || self.request_now_playing == Some(true)
+                    || self.request_volume == Some(true)
+                {
+                    player_info = MprisPlayer::from_player(&player).ok();
+                }
             }
 
             if let Some(album_art_url) = &self.album_art_url {
-                let Ok(player_info) = MprisPlayer::new(Some(player_name)) else {
+                let Some(player_info) = player_info else {
                     return;
                 };
                 let art = player_info.album_art_url.clone();
@@ -372,7 +383,7 @@ impl MprisRequest {
             }
 
             if (self.request_now_playing == Some(true) || self.request_volume == Some(true))
-                && let Ok(player_info) = MprisPlayer::new(Some(player_name))
+                && let Some(player_info) = player_info
             {
                 let construct_packet = ProtocolPacket::new(
                     PacketType::Mpris,
@@ -414,6 +425,16 @@ pub fn telephony_call_signal() -> Option<&'static std::sync::mpsc::SyncSender<bo
     TELEPHONY_CALL_TX.get()
 }
 
+struct WatchGuard(Arc<std::sync::Mutex<HashSet<String>>>, String);
+
+impl Drop for WatchGuard {
+    fn drop(&mut self) {
+        if let Ok(mut set) = self.0.lock() {
+            set.remove(&self.1);
+        }
+    }
+}
+
 pub fn monitor_mpris(
     device_manager: DeviceManager,
     core_tx: mpsc::UnboundedSender<crate::event::CoreEvent>,
@@ -430,7 +451,8 @@ pub fn monitor_mpris(
         // those that drop their MPRIS advertisement while paused (e.g. browsers).
         let mut paused_players: Vec<mpris::Player> = Vec::new();
         let mut known_players: Vec<String> = vec![];
-        let mut watched_players: HashSet<String> = HashSet::new();
+        let watched_players: Arc<std::sync::Mutex<HashSet<String>>> =
+            Arc::new(std::sync::Mutex::new(HashSet::new()));
 
         loop {
             // Handle telephony call signal using persistent handles — no new finder needed.
@@ -438,7 +460,7 @@ pub fn monitor_mpris(
                 if call_active {
                     paused_players.clear();
                     if let Ok(finder) = mpris::PlayerFinder::new() {
-                        if let Ok(players) = finder.find_all() {
+                        if let Ok(players) = trackable_players(&finder) {
                             for player in players {
                                 if matches!(
                                     player.get_playback_status(),
@@ -462,7 +484,10 @@ pub fn monitor_mpris(
                     paused_players.clear();
                 }
             }
-            let current_names = get_all_mpris_player_names();
+            // A failed listing is not "no players": keep the known list for this tick.
+            let current_names = get_all_mpris_player_names()
+                .inspect_err(|e| tracing::debug!("Failed to list MPRIS players: {}", e))
+                .unwrap_or_else(|_| known_players.clone());
 
             if current_names != known_players {
                 tracing::info!("MPRIS player list changed: {:?}", current_names);
@@ -488,81 +513,71 @@ pub fn monitor_mpris(
                     }
                 });
 
-                // Spawn a watcher only for players that are NEW this cycle.
-                for name in &current_names {
-                    if watched_players.contains(name) {
-                        continue;
-                    }
-                    watched_players.insert(name.clone());
+                known_players = current_names;
+            }
 
-                    let name = name.clone();
-                    let dm2 = device_manager.clone();
-                    let ctx2 = core_tx.clone();
-                    tokio::task::spawn_blocking(move || {
-                        let finder = match mpris::PlayerFinder::new() {
-                            Ok(f) => f,
-                            Err(e) => {
-                                tracing::error!("PlayerFinder error: {}", e);
-                                return;
-                            }
-                        };
-                        let player = match finder.find_by_name(&name) {
-                            Ok(p) => p,
-                            Err(_) => return,
-                        };
-                        let events = match player.events() {
-                            Ok(e) => e,
-                            Err(e) => {
-                                tracing::error!("Failed to get events for {}: {}", name, e);
-                                return;
-                            }
-                        };
-                        for event in events {
-                            match event {
-                                Ok(mpris::Event::Playing)
-                                | Ok(mpris::Event::Paused)
-                                | Ok(mpris::Event::Stopped)
-                                | Ok(mpris::Event::TrackChanged(_))
-                                | Ok(mpris::Event::Seeked { .. })
-                                | Ok(mpris::Event::VolumeChanged(_)) => {
-                                    let identity = player.identity();
-                                    if let Ok(mpris_player) = MprisPlayer::new(Some(identity)) {
-                                        let packet = ProtocolPacket::new(
-                                            PacketType::Mpris,
-                                            serde_json::to_value(Mpris::Info(mpris_player))
-                                                .unwrap(),
-                                        );
-                                        let dm = dm2.clone();
-                                        let ctx = ctx2.clone();
-                                        tokio::spawn(async move {
-                                            let devices = dm.get_devices().await;
-                                            for device in devices {
-                                                let _ =
-                                                    ctx.send(crate::event::CoreEvent::SendPacket {
-                                                        device: device.device_id.clone(),
-                                                        packet: packet.clone(),
-                                                    });
-                                            }
-                                        });
-                                    }
-                                }
-                                Err(e) => {
-                                    tracing::warn!("MPRIS event error for {}: {}", name, e);
-                                    break;
-                                }
-                                _ => {}
-                            }
-                        }
-                        tracing::info!("MPRIS watcher exited for player: {}", name);
-                        // The supervisor loop will detect the player is gone on
-                        // its next poll and remove it from known_players, which
-                        // will allow a fresh watcher if it restarts.
-                    });
+            // Spawn a watcher for any active player without a live watcher thread.
+            for name in &known_players {
+                if !watched_players.lock().unwrap().insert(name.clone()) {
+                    continue;
                 }
 
-                known_players = current_names;
-                // Clean up watched set for players that have gone away.
-                watched_players.retain(|p| known_players.contains(p));
+                let name = name.clone();
+                let watched = watched_players.clone();
+                let dm2 = device_manager.clone();
+                let ctx2 = core_tx.clone();
+                tokio::task::spawn_blocking(move || {
+                    let _guard = WatchGuard(watched, name.clone());
+                    let player = match find_player(&name) {
+                        Ok(p) => p,
+                        Err(e) => {
+                            tracing::warn!("MPRIS watcher could not find {}: {}", name, e);
+                            return;
+                        }
+                    };
+                    let events = match player.events() {
+                        Ok(e) => e,
+                        Err(e) => {
+                            tracing::warn!("Failed to get MPRIS events for {}: {}", name, e);
+                            return;
+                        }
+                    };
+                    for event in events {
+                        match event {
+                            Ok(mpris::Event::Playing)
+                            | Ok(mpris::Event::Paused)
+                            | Ok(mpris::Event::Stopped)
+                            | Ok(mpris::Event::TrackChanged(_))
+                            | Ok(mpris::Event::Seeked { .. })
+                            | Ok(mpris::Event::VolumeChanged(_)) => {
+                                if let Ok(mpris_player) = MprisPlayer::from_player(&player) {
+                                    let packet = ProtocolPacket::new(
+                                        PacketType::Mpris,
+                                        serde_json::to_value(Mpris::Info(mpris_player)).unwrap(),
+                                    );
+                                    let dm = dm2.clone();
+                                    let ctx = ctx2.clone();
+                                    tokio::spawn(async move {
+                                        let devices = dm.get_devices().await;
+                                        for device in devices {
+                                            let _ = ctx.send(crate::event::CoreEvent::SendPacket {
+                                                device: device.device_id.clone(),
+                                                packet: packet.clone(),
+                                            });
+                                        }
+                                    });
+                                }
+                            }
+                            Ok(mpris::Event::PlayerShutDown) => break,
+                            Err(e) => {
+                                tracing::warn!("MPRIS event error for {}: {}", name, e);
+                                break;
+                            }
+                            _ => {}
+                        }
+                    }
+                    tracing::info!("MPRIS watcher exited for player: {}", name);
+                });
             }
 
             std::thread::sleep(std::time::Duration::from_secs(2));
@@ -1082,4 +1097,28 @@ async fn register_phone_player(
         .await?;
 
     Ok((conn, player_state))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn trackable_player_filters_playerctld_and_kdeconnect_proxies() {
+        assert!(is_trackable_player("spotify"));
+        assert!(is_trackable_player("firefox.instance_1_42"));
+        assert!(!is_trackable_player("playerctld"));
+        assert!(!is_trackable_player("KDEConnect_1234_YouTube"));
+    }
+
+    #[test]
+    fn watch_guard_removes_player_name_on_drop() {
+        let watched = Arc::new(std::sync::Mutex::new(HashSet::new()));
+        assert!(watched.lock().unwrap().insert("Spotify".to_string()));
+        {
+            let _guard = WatchGuard(watched.clone(), "Spotify".to_string());
+            assert!(watched.lock().unwrap().contains("Spotify"));
+        }
+        assert!(!watched.lock().unwrap().contains("Spotify"));
+    }
 }
